@@ -1,0 +1,21 @@
+# Игнорировать базу данных
+bot_database.sqlite3
+
+# Игнорировать файлы окружения
+.env
+
+# Игнорировать кэш Python
+__pycache__/
+
+# Игнорировать настройки IDE (если используешь, например, PyCharm или VSCode)
+.idea/
+.vscode/
+
+# Игнорировать Docker артефакты (если вдруг)
+*.log
+*.pid
+locales/ru_backup.json
+locales/en_backup.json
+db/models_old.py
+.serena/
+AGENTS.md
