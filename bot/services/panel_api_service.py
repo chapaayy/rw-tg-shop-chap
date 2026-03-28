@@ -399,7 +399,7 @@ class PanelApiService:
         }
         hwid_limit_value = hwid_device_limit
         if hwid_limit_value is None:
-            hwid_limit_value = self.settings.USER_HWID_DEVICE_LIMIT
+            hwid_limit_value = self.settings.PAID_HWID_DEVICE_LIMIT
         if hwid_limit_value is not None:
             try:
                 hwid_limit_int = int(hwid_limit_value)

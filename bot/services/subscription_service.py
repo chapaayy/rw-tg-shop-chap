@@ -972,8 +972,6 @@ class SubscriptionService:
                 if is_trial_sub
                 else self.settings.PAID_HWID_DEVICE_LIMIT
             )
-            if hwid_limit is None:
-                hwid_limit = self.settings.USER_HWID_DEVICE_LIMIT
 
         return {
             "user_id": panel_user_data.get("uuid"),

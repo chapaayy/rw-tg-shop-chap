@@ -235,10 +235,6 @@ class Settings(BaseSettings):
         default=False,
         description="Enable the My Devices section in the subscription menu"
     )
-    USER_HWID_DEVICE_LIMIT: Optional[int] = Field(
-        default=None,
-        description="Default hardware device limit for panel users (0 = unlimited)"
-    )
     TRIAL_HWID_DEVICE_LIMIT: Optional[int] = Field(
         default=2,
         description="HWID/device limit for trial subscriptions (0 = unlimited)"
@@ -657,7 +653,6 @@ class Settings(BaseSettings):
     @field_validator(
         'REQUIRED_CHANNEL_ID',
         'FREEKASSA_PAYMENT_METHOD_ID',
-        'USER_HWID_DEVICE_LIMIT',
         'TRIAL_HWID_DEVICE_LIMIT',
         'PAID_HWID_DEVICE_LIMIT',
         'SEVERPAY_MID',
