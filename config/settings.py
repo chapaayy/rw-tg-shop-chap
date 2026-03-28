@@ -239,6 +239,14 @@ class Settings(BaseSettings):
         default=None,
         description="Default hardware device limit for panel users (0 = unlimited)"
     )
+    TRIAL_HWID_DEVICE_LIMIT: Optional[int] = Field(
+        default=2,
+        description="HWID/device limit for trial subscriptions (0 = unlimited)"
+    )
+    PAID_HWID_DEVICE_LIMIT: Optional[int] = Field(
+        default=8,
+        description="HWID/device limit for paid subscriptions (0 = unlimited)"
+    )
     
     # Inline mode thumbnail URLs
     INLINE_REFERRAL_THUMBNAIL_URL: str = Field(default="https://cdn-icons-png.flaticon.com/512/1077/1077114.png")
@@ -650,6 +658,8 @@ class Settings(BaseSettings):
         'REQUIRED_CHANNEL_ID',
         'FREEKASSA_PAYMENT_METHOD_ID',
         'USER_HWID_DEVICE_LIMIT',
+        'TRIAL_HWID_DEVICE_LIMIT',
+        'PAID_HWID_DEVICE_LIMIT',
         'SEVERPAY_MID',
         'SEVERPAY_LIFETIME_MINUTES',
         'LOG_CHAT_ID',

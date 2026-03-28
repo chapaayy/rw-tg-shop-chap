@@ -70,7 +70,11 @@ class SubscriptionService:
                 )
 
     async def _get_or_create_panel_user_link_details(
-        self, session: AsyncSession, user_id: int, db_user: Optional[User] = None
+        self,
+        session: AsyncSession,
+        user_id: int,
+        db_user: Optional[User] = None,
+        hwid_device_limit: Optional[int] = None,
     ) -> Tuple[Optional[str], Optional[str], Optional[str], bool]:
         if not db_user:
             db_user = await user_dal.get_user_by_id(session, user_id)
@@ -129,6 +133,7 @@ class SubscriptionService:
                         external_squad_uuid=self.settings.parsed_user_external_squad_uuid,
                         default_traffic_limit_bytes=self.settings.user_traffic_limit_bytes,
                         default_traffic_limit_strategy=self.settings.USER_TRAFFIC_STRATEGY,
+                        hwid_device_limit=hwid_device_limit,
                     )
                     if (
                         creation_response
@@ -158,6 +163,7 @@ class SubscriptionService:
                     external_squad_uuid=self.settings.parsed_user_external_squad_uuid,
                     default_traffic_limit_bytes=self.settings.user_traffic_limit_bytes,
                     default_traffic_limit_strategy=self.settings.USER_TRAFFIC_STRATEGY,
+                    hwid_device_limit=hwid_device_limit,
                 )
                 if (
                     creation_response
@@ -330,7 +336,12 @@ class SubscriptionService:
             }
 
         panel_user_uuid, panel_sub_link_id, panel_short_uuid, panel_user_created_now = (
-            await self._get_or_create_panel_user_link_details(session, user_id, db_user)
+            await self._get_or_create_panel_user_link_details(
+                session,
+                user_id,
+                db_user,
+                hwid_device_limit=self.settings.TRIAL_HWID_DEVICE_LIMIT,
+            )
         )
 
         if not panel_user_uuid or not panel_sub_link_id:
@@ -379,6 +390,7 @@ class SubscriptionService:
             expire_at=end_date,
             status="ACTIVE",
             traffic_limit_bytes=self.settings.trial_traffic_limit_bytes,
+            hwid_device_limit=self.settings.TRIAL_HWID_DEVICE_LIMIT,
         )
 
         # Add user description based on Telegram profile
@@ -436,7 +448,12 @@ class SubscriptionService:
             return None
 
         panel_user_uuid, panel_sub_link_id, panel_short_uuid, _ = (
-            await self._get_or_create_panel_user_link_details(session, user_id, db_user)
+            await self._get_or_create_panel_user_link_details(
+                session,
+                user_id,
+                db_user,
+                hwid_device_limit=self.settings.PAID_HWID_DEVICE_LIMIT,
+            )
         )
 
         if not panel_user_uuid or not panel_sub_link_id:
@@ -498,6 +515,7 @@ class SubscriptionService:
             status="ACTIVE",
             traffic_limit_bytes=new_limit,
             traffic_limit_strategy="NO_RESET",
+            hwid_device_limit=self.settings.PAID_HWID_DEVICE_LIMIT,
         )
 
         panel_update_payload["description"] = "\n".join(
@@ -565,7 +583,12 @@ class SubscriptionService:
             return None
 
         panel_user_uuid, panel_sub_link_id, panel_short_uuid, panel_user_created_now = (
-            await self._get_or_create_panel_user_link_details(session, user_id, db_user)
+            await self._get_or_create_panel_user_link_details(
+                session,
+                user_id,
+                db_user,
+                hwid_device_limit=self.settings.PAID_HWID_DEVICE_LIMIT,
+            )
         )
 
         if not panel_user_uuid or not panel_sub_link_id:
@@ -668,6 +691,7 @@ class SubscriptionService:
             expire_at=final_end_date,
             status="ACTIVE",
             traffic_limit_bytes=self.settings.user_traffic_limit_bytes,
+            hwid_device_limit=self.settings.PAID_HWID_DEVICE_LIMIT,
         )
 
         # Add user description based on Telegram profile
@@ -737,7 +761,14 @@ class SubscriptionService:
             return None
 
         panel_uuid, panel_sub_uuid, _, _ = await self._get_or_create_panel_user_link_details(
-            session, user_id, user
+            session,
+            user_id,
+            user,
+            hwid_device_limit=(
+                self.settings.PAID_HWID_DEVICE_LIMIT
+                if apply_main_traffic_limit
+                else self.settings.TRIAL_HWID_DEVICE_LIMIT
+            ),
         )
         if not panel_uuid or not panel_sub_uuid:
             logging.error(
@@ -809,6 +840,11 @@ class SubscriptionService:
                 expire_at=new_end_date_obj,
                 traffic_limit_bytes=(
                     self.settings.user_traffic_limit_bytes if apply_main_traffic_limit else None
+                ),
+                hwid_device_limit=(
+                    self.settings.PAID_HWID_DEVICE_LIMIT
+                    if apply_main_traffic_limit
+                    else self.settings.TRIAL_HWID_DEVICE_LIMIT
                 ),
                 include_uuid=False,
             )
@@ -921,7 +957,23 @@ class SubscriptionService:
         display_link, connect_button_url = await prepare_config_links(self.settings, config_link_raw)
         hwid_limit = panel_user_data.get("hwidDeviceLimit")
         if hwid_limit is None:
-            hwid_limit = self.settings.USER_HWID_DEVICE_LIMIT
+            is_trial_sub = bool(
+                local_active_sub
+                and (
+                    local_active_sub.status_from_panel == "TRIAL"
+                    or (
+                        local_active_sub.duration_months == 0
+                        and not local_active_sub.provider
+                    )
+                )
+            )
+            hwid_limit = (
+                self.settings.TRIAL_HWID_DEVICE_LIMIT
+                if is_trial_sub
+                else self.settings.PAID_HWID_DEVICE_LIMIT
+            )
+            if hwid_limit is None:
+                hwid_limit = self.settings.USER_HWID_DEVICE_LIMIT
 
         return {
             "user_id": panel_user_data.get("uuid"),
@@ -1080,6 +1132,7 @@ class SubscriptionService:
         traffic_limit_bytes: Optional[int] = None,
         include_uuid: bool = True,
         traffic_limit_strategy: Optional[str] = None,
+        hwid_device_limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {}
         if include_uuid and panel_user_uuid:
@@ -1091,6 +1144,8 @@ class SubscriptionService:
         if traffic_limit_bytes is not None:
             payload["trafficLimitBytes"] = traffic_limit_bytes
             payload["trafficLimitStrategy"] = traffic_limit_strategy or self.settings.USER_TRAFFIC_STRATEGY
+        if hwid_device_limit is not None:
+            payload["hwidDeviceLimit"] = int(hwid_device_limit)
         if self.settings.parsed_user_squad_uuids:
             payload["activeInternalSquads"] = self.settings.parsed_user_squad_uuids
         if self.settings.parsed_user_external_squad_uuid:
