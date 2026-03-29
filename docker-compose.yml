@@ -1,8 +1,9 @@
-services:
-  remnawave-tg-shop:
-    build: .
-    container_name: remnawave-tg-shop
-    hostname: remnawave-tg-shop
+﻿services:
+  rw-tg-shop-chap:
+    image: ghcr.io/chapaayy/rw-tg-shop-chap:latest
+    pull_policy: always
+    container_name: rw-tg-shop-chap
+    hostname: rw-tg-shop-chap
     env_file:
       - .env
     networks:
@@ -11,17 +12,17 @@ services:
       - ./locales:/app/locales
     restart: unless-stopped
     depends_on:
-      remnawave-tg-shop-db:
+      rw-tg-shop-chap-db:
         condition: service_healthy
 
-  remnawave-tg-shop-db:
+  rw-tg-shop-chap-db:
     image: postgres:17
-    container_name: remnawave-tg-shop-db
-    hostname: remnawave-tg-shop-db
+    container_name: rw-tg-shop-chap-db
+    hostname: rw-tg-shop-chap-db
     env_file:
       - .env
     volumes:
-      - remnawave-tg-shop-db-data:/var/lib/postgresql/data
+      - rw-tg-shop-chap-db-data:/var/lib/postgresql/data
     networks:
       - remnawave-network
     restart: unless-stopped
@@ -36,5 +37,6 @@ networks:
     external: true
 
 volumes:
-  remnawave-tg-shop-db-data:
-    name: remnawave-tg-shop-db-data
+  rw-tg-shop-chap-db-data:
+    name: rw-tg-shop-chap-db-data
+
