@@ -8,7 +8,7 @@ from . import statistics
 from . import sync_admin
 from . import logs_admin
 from . import payments
-from . import ads
+from . import partners
 
 admin_router_aggregate = Router(name="admin_features_router")
 
@@ -20,6 +20,6 @@ admin_router_aggregate.include_router(statistics.router)
 admin_router_aggregate.include_router(sync_admin.router)
 admin_router_aggregate.include_router(logs_admin.router)
 admin_router_aggregate.include_router(payments.router)
-admin_router_aggregate.include_router(ads.router)
+admin_router_aggregate.include_router(partners.router)
 
 __all__ = ("admin_router_aggregate", )

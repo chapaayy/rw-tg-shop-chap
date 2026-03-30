@@ -5,7 +5,7 @@ from . import promo_code_dal
 from . import panel_sync_dal
 from . import message_log_dal
 from . import user_billing_dal
-from . import ad_dal
+from . import partner_dal
 
 __all__ = (
     "user_dal",
@@ -15,7 +15,7 @@ __all__ = (
     "panel_sync_dal",
     "message_log_dal",
     "user_billing_dal",
-    "ad_dal",
+    "partner_dal",
 )
 
 

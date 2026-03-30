@@ -32,7 +32,7 @@ class AdminStates(StatesGroup):
     waiting_for_direct_message_to_user = State()
     waiting_for_user_delete_confirmation = State()
 
-    # Ads campaigns
-    waiting_for_ad_source = State()
-    waiting_for_ad_start_param = State()
-    waiting_for_ad_cost = State()
+    # Partner program
+    waiting_for_partner_percent = State()
+    waiting_for_partner_default_percent = State()
+    waiting_for_partner_min_payment = State()

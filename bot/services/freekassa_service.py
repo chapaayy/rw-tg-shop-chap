@@ -15,11 +15,10 @@ from sqlalchemy.orm import sessionmaker
 from config.settings import Settings
 from bot.middlewares.i18n import JsonI18n
 from bot.services.subscription_service import SubscriptionService
-from bot.services.referral_service import ReferralService
+from bot.services.partner_service import PartnerService
 from bot.keyboards.inline.user_keyboards import get_connect_and_main_keyboard
 from bot.services.notification_service import NotificationService
 from db.dal import payment_dal, user_dal
-from bot.utils.text_sanitizer import sanitize_display_name, username_for_display
 from bot.utils.config_link import prepare_config_links
 
 
@@ -32,14 +31,14 @@ class FreeKassaService:
         i18n: JsonI18n,
         async_session_factory: sessionmaker,
         subscription_service: SubscriptionService,
-        referral_service: ReferralService,
+        partner_service: PartnerService,
     ):
         self.bot = bot
         self.settings = settings
         self.i18n = i18n
         self.async_session_factory = async_session_factory
         self.subscription_service = subscription_service
-        self.referral_service = referral_service
+        self.partner_service = partner_service
 
         self.shop_id: Optional[str] = settings.FREEKASSA_MERCHANT_ID
         self.api_key: Optional[str] = settings.FREEKASSA_API_KEY
@@ -349,7 +348,6 @@ class FreeKassaService:
                 return web.Response(status=400, text="amount_validation_error")
 
             activation = None
-            referral_bonus = None
             try:
                 provider_id = str(provider_payment_id or f"freekassa:{order_id_str}")
                 marked = await payment_dal.mark_provider_payment_succeeded_once(
@@ -383,15 +381,14 @@ class FreeKassaService:
                         f"FreeKassa webhook: activation failed for payment {payment.payment_id}"
                     )
 
-                referral_bonus = None
-                if sale_mode != "traffic":
-                    referral_bonus = await self.referral_service.apply_referral_bonuses_for_payment(
-                        session,
-                        payment.user_id,
-                        int(months),
-                        current_payment_db_id=payment.payment_id,
-                        skip_if_active_before_payment=False,
-                    )
+                await self.partner_service.apply_partner_commission_for_payment(
+                    session,
+                    payment_id=payment.payment_id,
+                    invited_user_id=payment.user_id,
+                    payment_amount=float(payment.amount),
+                    sale_mode=sale_mode,
+                    currency=(payment.currency or self.default_currency or "RUB"),
+                )
 
                 await session.commit()
             except Exception as e:
@@ -409,11 +406,7 @@ class FreeKassaService:
             final_end = activation.get("end_date") if activation else None
             months = payment.subscription_duration_months or 1
             sale_mode = "traffic" if self.settings.traffic_sale_mode else "subscription"
-
-            applied_days = 0
-            if referral_bonus and referral_bonus.get("referee_new_end_date"):
-                final_end = referral_bonus["referee_new_end_date"]
-                applied_days = referral_bonus.get("referee_bonus_applied_days", 0)
+            applied_promo_days = int(activation.get("applied_promo_bonus_days") or 0) if activation else 0
 
             if not final_end and activation and activation.get("end_date"):
                 final_end = activation["end_date"]
@@ -430,23 +423,12 @@ class FreeKassaService:
                          traffic_gb=traffic_label,
                          end_date=end_date_str if final_end else "",
                          config_link=config_link_text)
-            elif applied_days:
-                inviter_name_display = _("friend_placeholder")
-                if db_user and db_user.referred_by_id:
-                    inviter = await user_dal.get_user_by_id(session, db_user.referred_by_id)
-                    if inviter:
-                        safe_name = sanitize_display_name(inviter.first_name) if inviter.first_name else None
-                        if safe_name:
-                            inviter_name_display = safe_name
-                        elif inviter.username:
-                            inviter_name_display = username_for_display(inviter.username, with_at=False)
+            elif applied_promo_days > 0:
                 text = _(
-                    "payment_successful_with_referral_bonus_full",
+                    "payment_successful_with_promo_full",
                     months=months,
-                    base_end_date=activation["end_date"].strftime("%Y-%m-%d") if activation and activation.get("end_date") else end_date_str,
-                    bonus_days=applied_days,
-                    final_end_date=end_date_str,
-                    inviter_name=inviter_name_display,
+                    bonus_days=applied_promo_days,
+                    end_date=end_date_str,
                     config_link=config_link_text,
                 )
             else:

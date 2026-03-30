@@ -53,7 +53,7 @@ async def show_statistics_handler(callback: types.CallbackQuery,
         f"🚫 {_('admin_user_stats_banned_label')}: <b>{user_stats['banned_users']}</b>"
     )
     stats_text_parts.append(
-        f"🎁 {_('admin_user_stats_referral_label')}: <b>{user_stats['referral_users']}</b>"
+        f"🤝 {_('admin_user_stats_partner_label')}: <b>{user_stats['partner_users']}</b>"
     )
     
     # Panel Statistics - moved above financial

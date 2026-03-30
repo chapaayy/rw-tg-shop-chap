@@ -1,4 +1,4 @@
-from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
+﻿from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from aiogram.types import InlineKeyboardMarkup, WebAppInfo
 from typing import Optional, List, Any
 import math
@@ -13,23 +13,23 @@ def get_admin_panel_keyboard(i18n_instance, lang: str,
     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
     builder = InlineKeyboardBuilder()
     
-    # Статистика и мониторинг
+    # Statistics and monitoring
     builder.button(text=_(key="admin_stats_and_monitoring_section"),
                    callback_data="admin_section:stats_monitoring")
     
-    # Управление пользователями  
+    # User management
     builder.button(text=_(key="admin_user_management_section"),
                    callback_data="admin_section:user_management")
     
-    # Промокоды и маркетинг
+    # Promo and marketing
     builder.button(text=_(key="admin_promo_marketing_section"),
                    callback_data="admin_section:promo_marketing")
     
-    # Реклама
-    builder.button(text=_(key="admin_ads_section"),
-                   callback_data="admin_action:ads")
+    # Partners
+    builder.button(text=_(key="admin_partners_section"),
+                   callback_data="admin_action:partners")
 
-    # Системные функции
+    # System functions
     builder.button(text=_(key="admin_system_functions_section"),
                    callback_data="admin_section:system_functions")
     
@@ -122,82 +122,6 @@ def get_system_functions_keyboard(i18n_instance, lang: str) -> InlineKeyboardMar
     return builder.as_markup()
 
 
-def get_ads_menu_keyboard(i18n_instance, lang: str) -> InlineKeyboardMarkup:
-    _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
-    builder = InlineKeyboardBuilder()
-    builder.button(text=_(key="admin_ads_create_button"),
-                   callback_data="admin_action:ads_create")
-    builder.button(text=_(key="back_to_admin_panel_button"),
-                   callback_data="admin_action:main")
-    builder.adjust(1, 1)
-    return builder.as_markup()
-
-
-def get_ads_list_keyboard(
-    i18n_instance,
-    lang: str,
-    campaigns: list,
-    current_page: int,
-    total_pages: int,
-) -> InlineKeyboardMarkup:
-    _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
-    builder = InlineKeyboardBuilder()
-
-    for c in campaigns:
-        title = f"{c.source}"
-        builder.button(
-            text=title,
-            callback_data=f"admin_ads:card:{c.ad_campaign_id}:{current_page}",
-        )
-
-    # Pagination row (only when needed)
-    if total_pages > 1:
-        row = []
-        if current_page > 0:
-            row.append(
-                InlineKeyboardButton(
-                    text="⬅️ " + _("prev_page_button"),
-                    callback_data=f"admin_ads:page:{current_page - 1}",
-                )
-            )
-        row.append(
-            InlineKeyboardButton(
-                text=f"{current_page + 1}/{total_pages}",
-                callback_data="ads_page_display",
-            )
-        )
-        if current_page < total_pages - 1:
-            row.append(
-                InlineKeyboardButton(
-                    text=_("next_page_button") + " ➡️",
-                    callback_data=f"admin_ads:page:{current_page + 1}",
-                )
-            )
-        if row:
-            builder.row(*row)
-
-    builder.button(text=_(key="admin_ads_create_button"),
-                   callback_data="admin_action:ads_create")
-    builder.button(text=_(key="back_to_admin_panel_button"),
-                   callback_data="admin_action:main")
-    builder.adjust(1)
-    return builder.as_markup()
-
-
-def get_ad_card_keyboard(i18n_instance, lang: str, campaign_id: int, back_page: int) -> InlineKeyboardMarkup:
-    _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
-    builder = InlineKeyboardBuilder()
-    # Dangerous action: Delete campaign
-    builder.button(text=_(key="admin_ads_delete_button"),
-                   callback_data=f"admin_ads:delete:{campaign_id}:{back_page}")
-    builder.button(text=_(key="back_to_ads_list_button"),
-                   callback_data=f"admin_ads:page:{back_page}")
-    builder.button(text=_(key="back_to_admin_panel_button"),
-                   callback_data="admin_action:main")
-    builder.adjust(1)
-    return builder.as_markup()
-
-
 def get_logs_menu_keyboard(i18n_instance, lang: str) -> InlineKeyboardMarkup:
     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
     builder = InlineKeyboardBuilder()
@@ -227,12 +151,12 @@ def get_logs_pagination_keyboard(
     if current_page > 0:
         row_buttons.append(
             InlineKeyboardButton(
-                text="⬅️ " + _("prev_page_button"),
+                text="< " + _("prev_page_button"),
                 callback_data=f"{base_callback_data}:{current_page - 1}"))
     if current_page < total_pages - 1:
         row_buttons.append(
             InlineKeyboardButton(
-                text=_("next_page_button") + " ➡️",
+                text=_("next_page_button") + " >",
                 callback_data=f"{base_callback_data}:{current_page + 1}"))
 
     if row_buttons: builder.row(*row_buttons)
@@ -428,7 +352,7 @@ def get_broadcast_confirmation_keyboard(lang: str,
 
     # Highlight current selection with a prefix
     def mark_selected(label: str, is_selected: bool) -> str:
-        return ("• " + label) if is_selected else label
+        return ("* " + label) if is_selected else label
 
     builder.button(
         text=mark_selected(target_all_label, target == "all"),
@@ -460,3 +384,5 @@ def get_back_to_admin_panel_keyboard(lang: str,
     builder.button(text=_(key="back_to_admin_panel_button"),
                    callback_data="admin_action:main")
     return builder.as_markup()
+
+

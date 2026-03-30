@@ -31,11 +31,11 @@ def get_main_menu_inline_keyboard(
     promo_button = InlineKeyboardButton(
         text=_(key="menu_apply_promo_button"),
         callback_data="main_action:apply_promo")
-    if settings.REFERRAL_ENABLED:
-        referral_button = InlineKeyboardButton(
-            text=_(key="menu_referral_inline"),
-            callback_data="main_action:referral")
-        builder.row(referral_button, promo_button)
+    if settings.PARTNER_PROGRAM_ENABLED:
+        partner_button = InlineKeyboardButton(
+            text=_(key="menu_partners_inline"),
+            callback_data="main_action:partners")
+        builder.row(partner_button, promo_button)
     else:
         builder.row(promo_button)
 
@@ -292,15 +292,21 @@ def get_yk_saved_cards_keyboard(
     return builder.as_markup()
 
 
-def get_referral_link_keyboard(lang: str,
-                               i18n_instance) -> InlineKeyboardMarkup:
+def get_partner_menu_keyboard(
+        lang: str,
+        i18n_instance,
+        *,
+        has_custom_slug: bool = False) -> InlineKeyboardMarkup:
     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
     builder = InlineKeyboardBuilder()
-    builder.button(text=_(key="referral_share_message_button"),
-                   callback_data="referral_action:share_message")
+    builder.button(text=_(key="partners_change_slug_button"),
+                   callback_data="partners_action:change_slug")
+    if has_custom_slug:
+        builder.button(text=_(key="partners_reset_slug_button"),
+                       callback_data="partners_action:reset_slug")
     builder.button(text=_(key="back_to_main_menu_button"),
                    callback_data="main_action:back_to_main")
-    builder.adjust(1)
+    builder.adjust(1, 1, 1)
     return builder.as_markup()
 
 

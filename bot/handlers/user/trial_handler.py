@@ -117,14 +117,6 @@ async def request_trial_confirmation_handler(
         # Send notification to admin about new trial
         notification_service = NotificationService(callback.bot, settings, i18n)
         await notification_service.notify_trial_activation(user_id, end_date_obj)
-        # Mark ad attribution trial if exists
-        try:
-            from db.dal import ad_dal as _ad_dal
-            await _ad_dal.mark_trial_activated(session, user_id)
-            await session.commit()
-        except Exception as e_mark:
-            await session.rollback()
-            logging.error(f"Failed to mark trial for ad attribution for user {user_id}: {e_mark}")
     else:
         message_key_from_service = (
             activation_result.get("message_key", "trial_activation_failed")
@@ -321,13 +313,6 @@ async def confirm_activate_trial_handler(
     if activation_result and activation_result.get("activated") and end_date_obj:
         notification_service = NotificationService(callback.bot, settings, i18n)
         await notification_service.notify_trial_activation(user_id, end_date_obj)
-        try:
-            from db.dal import ad_dal as _ad_dal
-            await _ad_dal.mark_trial_activated(session, user_id)
-            await session.commit()
-        except Exception as e_mark:
-            await session.rollback()
-            logging.error(f"Failed to mark trial for ad attribution for user {user_id}: {e_mark}")
 
 
 @router.callback_query(F.data == "main_action:cancel_trial")

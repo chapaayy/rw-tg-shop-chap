@@ -44,9 +44,9 @@ class NotificationService:
     def _build_profile_keyboard(
         translate: Callable[..., str],
         user_id: int,
-        referrer_id: Optional[int] = None,
+        partner_id: Optional[int] = None,
     ) -> InlineKeyboardMarkup:
-        """Create inline keyboard with links to user (and referrer) profiles."""
+        """Create inline keyboard with links to user (and related partner) profiles."""
         buttons = [
             [
                 InlineKeyboardButton(
@@ -58,13 +58,13 @@ class NotificationService:
             ]
         ]
 
-        if referrer_id:
+        if partner_id:
             buttons.append([
                 InlineKeyboardButton(
                     text=translate(
-                        "log_open_referrer_profile_button",
+                        "log_open_partner_profile_button",
                     ),
-                    url=f"tg://user?id={referrer_id}",
+                    url=f"tg://user?id={partner_id}",
                 )
             ])
 
@@ -179,7 +179,7 @@ class NotificationService:
     
     async def notify_new_user_registration(self, user_id: int, username: Optional[str] = None, 
                                          first_name: Optional[str] = None, 
-                                         referred_by_id: Optional[int] = None):
+                                         partner_by_id: Optional[int] = None):
         """Send notification about new user registration"""
         if not self.settings.LOG_NEW_USERS:
             return
@@ -193,24 +193,24 @@ class NotificationService:
             first_name=first_name,
         )
         
-        referral_text = ""
-        if referred_by_id:
-            referrer_link = hd.link(str(referred_by_id), f"tg://user?id={referred_by_id}")
-            referral_text = _(
-                "log_referral_suffix",
-                referrer_link=referrer_link,
+        partner_text = ""
+        if partner_by_id:
+            partner_link = hd.link(str(partner_by_id), f"tg://user?id={partner_by_id}")
+            partner_text = _(
+                "log_partner_suffix",
+                partner_link=partner_link,
             )
         
         message = _(
             "log_new_user_registration",
             user_id=user_id,
             user_display=user_display,
-            referral_text=referral_text,
+            partner_text=partner_text,
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
         # Send to log channel
-        profile_keyboard = self._build_profile_keyboard(_, user_id, referred_by_id)
+        profile_keyboard = self._build_profile_keyboard(_, user_id, partner_by_id)
         await self._send_to_log_channel(message, reply_markup=profile_keyboard)
     
     async def notify_payment_received(self, user_id: int, amount: float, currency: str,

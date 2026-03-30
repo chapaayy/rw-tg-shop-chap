@@ -170,36 +170,9 @@ class Settings(BaseSettings):
     SUBSCRIPTION_NOTIFY_AFTER_EXPIRE: bool = Field(default=True)
     SUBSCRIPTION_NOTIFY_DAYS_BEFORE: int = Field(default=3)
 
-    REFERRAL_BONUS_DAYS_INVITER_1_MONTH: Optional[int] = Field(
-        default=3, alias="REFERRAL_BONUS_DAYS_1_MONTH")
-    REFERRAL_BONUS_DAYS_INVITER_3_MONTHS: Optional[int] = Field(
-        default=7, alias="REFERRAL_BONUS_DAYS_3_MONTHS")
-    REFERRAL_BONUS_DAYS_INVITER_6_MONTHS: Optional[int] = Field(
-        default=15, alias="REFERRAL_BONUS_DAYS_6_MONTHS")
-    REFERRAL_BONUS_DAYS_INVITER_12_MONTHS: Optional[int] = Field(
-        default=30, alias="REFERRAL_BONUS_DAYS_12_MONTHS")
-
-    REFERRAL_BONUS_DAYS_REFEREE_1_MONTH: Optional[int] = Field(
-        default=1, alias="REFEREE_BONUS_DAYS_1_MONTH")
-    REFERRAL_BONUS_DAYS_REFEREE_3_MONTHS: Optional[int] = Field(
-        default=3, alias="REFEREE_BONUS_DAYS_3_MONTHS")
-    REFERRAL_BONUS_DAYS_REFEREE_6_MONTHS: Optional[int] = Field(
-        default=7, alias="REFEREE_BONUS_DAYS_6_MONTHS")
-    REFERRAL_BONUS_DAYS_REFEREE_12_MONTHS: Optional[int] = Field(
-        default=15, alias="REFEREE_BONUS_DAYS_12_MONTHS")
-
-    # Referral program configuration
-    REFERRAL_ONE_BONUS_PER_REFEREE: bool = Field(
+    PARTNER_PROGRAM_ENABLED: bool = Field(
         default=True,
-        description="When true, referral bonuses (for inviter and referee) are applied only once per invited user - on their first successful payment."
-    )
-    REFERRAL_ENABLED: bool = Field(
-        default=True,
-        description="Enable referral links, referral menu and referral bonuses",
-    )
-    LEGACY_REFS: bool = Field(
-        default=True,
-        description="Allow legacy referral links like ref_<telegram_id> to continue working. Defaults to True when unset."
+        description="Enable partner links, partner menu and partner payouts.",
     )
 
     PANEL_API_URL: Optional[str] = None
@@ -245,7 +218,7 @@ class Settings(BaseSettings):
     )
     
     # Inline mode thumbnail URLs
-    INLINE_REFERRAL_THUMBNAIL_URL: str = Field(default="https://cdn-icons-png.flaticon.com/512/1077/1077114.png")
+    INLINE_PARTNER_THUMBNAIL_URL: str = Field(default="https://cdn-icons-png.flaticon.com/512/1077/1077114.png")
     INLINE_USER_STATS_THUMBNAIL_URL: str = Field(default="https://cdn-icons-png.flaticon.com/512/681/681494.png")
     INLINE_FINANCIAL_STATS_THUMBNAIL_URL: str = Field(default="https://cdn-icons-png.flaticon.com/512/2769/2769339.png")
     INLINE_SYSTEM_STATS_THUMBNAIL_URL: str = Field(default="https://cdn-icons-png.flaticon.com/512/2920/2920277.png")
@@ -507,34 +480,6 @@ class Settings(BaseSettings):
     def traffic_sale_mode(self) -> bool:
         """When true, the bot sells traffic packages instead of time-based subscriptions."""
         return bool(self.traffic_packages or self.stars_traffic_packages)
-
-    @computed_field
-    @property
-    def referral_bonus_inviter(self) -> Dict[int, int]:
-        bonuses: Dict[int, int] = {}
-        if self.REFERRAL_BONUS_DAYS_INVITER_1_MONTH is not None:
-            bonuses[1] = self.REFERRAL_BONUS_DAYS_INVITER_1_MONTH
-        if self.REFERRAL_BONUS_DAYS_INVITER_3_MONTHS is not None:
-            bonuses[3] = self.REFERRAL_BONUS_DAYS_INVITER_3_MONTHS
-        if self.REFERRAL_BONUS_DAYS_INVITER_6_MONTHS is not None:
-            bonuses[6] = self.REFERRAL_BONUS_DAYS_INVITER_6_MONTHS
-        if self.REFERRAL_BONUS_DAYS_INVITER_12_MONTHS is not None:
-            bonuses[12] = self.REFERRAL_BONUS_DAYS_INVITER_12_MONTHS
-        return bonuses
-
-    @computed_field
-    @property
-    def referral_bonus_referee(self) -> Dict[int, int]:
-        bonuses: Dict[int, int] = {}
-        if self.REFERRAL_BONUS_DAYS_REFEREE_1_MONTH is not None:
-            bonuses[1] = self.REFERRAL_BONUS_DAYS_REFEREE_1_MONTH
-        if self.REFERRAL_BONUS_DAYS_REFEREE_3_MONTHS is not None:
-            bonuses[3] = self.REFERRAL_BONUS_DAYS_REFEREE_3_MONTHS
-        if self.REFERRAL_BONUS_DAYS_REFEREE_6_MONTHS is not None:
-            bonuses[6] = self.REFERRAL_BONUS_DAYS_REFEREE_6_MONTHS
-        if self.REFERRAL_BONUS_DAYS_REFEREE_12_MONTHS is not None:
-            bonuses[12] = self.REFERRAL_BONUS_DAYS_REFEREE_12_MONTHS
-        return bonuses
 
     @computed_field
     @property

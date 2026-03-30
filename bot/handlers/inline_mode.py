@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from aiogram import Router, types, Bot
 from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessageContent
 from typing import List, Optional
@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
 from db.dal import user_dal, payment_dal
-from bot.services.referral_service import ReferralService
+from bot.services.partner_service import PartnerService
 from bot.middlewares.i18n import JsonI18n
 
 router = Router(name="inline_mode_router")
@@ -16,10 +16,10 @@ router = Router(name="inline_mode_router")
 async def inline_query_handler(inline_query: InlineQuery,
                                settings: Settings,
                                i18n_data: dict,
-                               referral_service: ReferralService,
+                               partner_service: PartnerService,
                                bot: Bot,
                                session: AsyncSession):
-    """Handle inline queries for referral links and admin statistics"""
+    """Handle inline queries for partner links and admin statistics"""
     current_lang = i18n_data.get("current_language", settings.DEFAULT_LANGUAGE)
     i18n: Optional[JsonI18n] = i18n_data.get("i18n_instance")
     if not i18n:
@@ -35,22 +35,37 @@ async def inline_query_handler(inline_query: InlineQuery,
     is_admin = user_id in settings.ADMIN_IDS if settings.ADMIN_IDS else False
     
     try:
-        # For all users: referral functionality
-        if not query or "реф" in query or "ref" in query or "друг" in query or "friend" in query:
-            referral_result = await create_referral_result(
+        # For all users: partner functionality
+        if (
+            not query
+            or "\u043f\u0430\u0440\u0442" in query
+            or "partner" in query
+            or "\u0434\u0440\u0443\u0433" in query
+            or "friend" in query
+        ):
+            partner_result = await create_partner_result(
                 inline_query,
                 bot,
-                referral_service,
+                partner_service,
                 i18n,
                 current_lang,
                 settings,
                 session,
             )
-            if referral_result:
-                results.append(referral_result)
+            if partner_result:
+                results.append(partner_result)
         
         # For admins: statistics
-        if is_admin and (not query or "стат" in query or "stat" in query or "админ" in query or "admin" in query):
+        if (
+            is_admin
+            and (
+                not query
+                or "\u0441\u0442\u0430\u0442" in query
+                or "stat" in query
+                or "\u0430\u0434\u043c\u0438\u043d" in query
+                or "admin" in query
+            )
+        ):
             stats_results = await create_admin_stats_results(
                 session, i18n, current_lang, settings
             )
@@ -73,56 +88,57 @@ async def inline_query_handler(inline_query: InlineQuery,
         await inline_query.answer(results=[], cache_time=10)
 
 
-async def create_referral_result(
+async def create_partner_result(
     inline_query: InlineQuery,
     bot: Bot,
-    referral_service: ReferralService,
+    partner_service: PartnerService,
     i18n_instance,
     lang: str,
     settings: Settings,
     session: AsyncSession,
 ) -> Optional[InlineQueryResultArticle]:
-    """Create referral link result for inline query"""
+    """Create partner link result for inline query"""
     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
     
     try:
+        program_settings = await partner_service.get_program_settings(session)
+        if not program_settings.is_enabled:
+            return None
+
         bot_info = await bot.get_me()
         bot_username = bot_info.username
         if not bot_username:
             return None
         
         user_id = inline_query.from_user.id
-        referral_link = await referral_service.generate_referral_link(
-            session, bot_username, user_id
+        dashboard = await partner_service.get_user_partner_dashboard(
+            session, user_id=user_id, bot_username=bot_username, referrals_limit=5
         )
+        partner_link = dashboard["active_link"]
 
-        if not referral_link:
-            logging.warning("Could not produce referral link for inline user %s", user_id)
-            return None
-        
         # Create message content (use same text as friend message)
         message_text = _(
-            "referral_friend_message",
-            referral_link=referral_link
+            "partners_share_message",
+            partner_link=partner_link,
         )
         
         return InlineQueryResultArticle(
-            id="referral_link",
+            id="partner_link",
             title=_(
-                "inline_referral_title"
+                "inline_partner_title"
             ),
             description=_(
-                "inline_referral_description"
+                "inline_partner_description"
             ),
             input_message_content=InputTextMessageContent(
                 message_text=message_text,
                 disable_web_page_preview=True
             ),
-            thumbnail_url=settings.INLINE_REFERRAL_THUMBNAIL_URL
+            thumbnail_url=settings.INLINE_PARTNER_THUMBNAIL_URL
         )
         
     except Exception as e:
-        logging.error(f"Error creating referral result: {e}")
+        logging.error(f"Error creating partner result: {e}")
         return None
 
 
@@ -169,7 +185,7 @@ async def create_user_stats_result(session: AsyncSession, i18n_instance, lang: s
             trial=user_stats['trial_users'],
             inactive=user_stats['inactive_users'],
             banned=user_stats['banned_users'],
-            referral=user_stats['referral_users']
+            partner=user_stats['partner_users']
         )
         
         return InlineQueryResultArticle(
@@ -340,3 +356,4 @@ async def create_system_stats_result(session: AsyncSession, i18n_instance, lang:
             thumbnail_url=settings.INLINE_SYSTEM_STATS_THUMBNAIL_URL
         )
         return None
+

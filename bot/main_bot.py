@@ -30,7 +30,7 @@ from bot.routers import build_root_router
 from bot.services.yookassa_service import YooKassaService
 from bot.services.panel_api_service import PanelApiService
 from bot.services.subscription_service import SubscriptionService
-from bot.services.referral_service import ReferralService
+from bot.services.partner_service import PartnerService
 from bot.services.promo_code_service import PromoCodeService
 from bot.services.stars_service import StarsService
 from bot.services.crypto_pay_service import CryptoPayService, cryptopay_webhook_route
@@ -213,7 +213,7 @@ async def on_shutdown_configured(dispatcher: Dispatcher):
         "promo_code_service",
         "stars_service",
         "subscription_service",
-        "referral_service",
+        "partner_service",
         "platega_service",
         "severpay_service",
     ):

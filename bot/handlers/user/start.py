@@ -19,7 +19,7 @@ from bot.keyboards.inline.user_keyboards import (
 )
 from bot.services.subscription_service import SubscriptionService
 from bot.services.panel_api_service import PanelApiService
-from bot.services.referral_service import ReferralService
+from bot.services.partner_service import PartnerService
 from bot.services.promo_code_service import PromoCodeService
 from config.settings import Settings
 from bot.middlewares.i18n import JsonI18n
@@ -309,18 +309,17 @@ async def ensure_required_channel_subscription(
 
 
 @router.message(CommandStart())
-@router.message(CommandStart(magic=F.args.regexp(r"^ref_((?:[uU][A-Za-z0-9]{9})|(?:[A-Za-z0-9]{9})|\d+)$").as_("ref_match")))
 @router.message(CommandStart(magic=F.args.regexp(r"^promo_(\w+)$").as_("promo_match")))
-@router.message(CommandStart(magic=F.args.regexp(r"^(?!ref_|promo_)([A-Za-z0-9_\-]{2,64})$").as_("ad_param_match")))
+@router.message(CommandStart(magic=F.args.regexp(r"^p_([a-z0-9_\-]{4,32})$").as_("partner_match")))
 async def start_command_handler(message: types.Message,
                                 state: FSMContext,
                                 settings: Settings,
                                 i18n_data: dict,
                                 subscription_service: SubscriptionService,
+                                partner_service: PartnerService,
                                 session: AsyncSession,
-                                ref_match: Optional[re.Match] = None,
                                 promo_match: Optional[re.Match] = None,
-                                ad_param_match: Optional[re.Match] = None):
+                                partner_match: Optional[re.Match] = None):
     await state.clear()
     current_lang = i18n_data.get("current_language", settings.DEFAULT_LANGUAGE)
     i18n: Optional[JsonI18n] = i18n_data.get("i18n_instance")
@@ -330,39 +329,16 @@ async def start_command_handler(message: types.Message,
     user = message.from_user
     user_id = user.id
 
-    referred_by_user_id: Optional[int] = None
+    bound_partner_user_id: Optional[int] = None
+    partner_slug_to_bind: Optional[str] = None
     promo_code_to_apply: Optional[str] = None
-    ad_start_param: Optional[str] = None
 
-    if ref_match and settings.REFERRAL_ENABLED:
-        raw_ref_value = ref_match.group(1)
-        if raw_ref_value.isdigit():
-            if settings.LEGACY_REFS:
-                potential_referrer_id = int(raw_ref_value)
-                if potential_referrer_id != user_id and await user_dal.get_user_by_id(
-                        session, potential_referrer_id):
-                    referred_by_user_id = potential_referrer_id
-        else:
-            normalized_code = raw_ref_value.strip()
-            if normalized_code and normalized_code[0].lower() == "u":
-                normalized_code = normalized_code[1:]
-            ref_user = None
-            if normalized_code:
-                ref_user = await user_dal.get_user_by_referral_code(
-                    session, normalized_code)
-            if ref_user and ref_user.user_id != user_id:
-                referred_by_user_id = ref_user.user_id
-    elif ref_match and not settings.REFERRAL_ENABLED:
-        logging.info(
-            "User %s started with referral parameter while referral system is disabled.",
-            user_id,
-        )
-    elif promo_match:
+    if promo_match:
         promo_code_to_apply = promo_match.group(1)
         logging.info(f"User {user_id} started with promo code: {promo_code_to_apply}")
-    elif ad_param_match:
-        ad_start_param = ad_param_match.group(1)
-        logging.info(f"User {user_id} started with ad start param: {ad_start_param}")
+    elif partner_match:
+        partner_slug_to_bind = partner_match.group(1).strip().lower()
+        logging.info(f"User {user_id} started with partner slug: {partner_slug_to_bind}")
 
     sanitized_username = sanitize_username(user.username)
     sanitized_first_name = sanitize_display_name(user.first_name)
@@ -376,7 +352,6 @@ async def start_command_handler(message: types.Message,
             "first_name": sanitized_first_name,
             "last_name": sanitized_last_name,
             "language_code": current_lang,
-            "referred_by_id": referred_by_user_id,
             "registration_date": datetime.now(timezone.utc)
         }
         try:
@@ -394,8 +369,23 @@ async def start_command_handler(message: types.Message,
                     await message.answer(_("error_occurred_processing_request"))
                     return
 
+                if settings.PARTNER_PROGRAM_ENABLED and partner_slug_to_bind:
+                    try:
+                        bind_result = await partner_service.bind_referred_user_by_slug(
+                            session, invited_user_id=user_id, slug=partner_slug_to_bind
+                        )
+                        bound_partner_user_id = bind_result.get("partner_user_id")
+                    except Exception as e_bind:
+                        logging.error(
+                            "Failed to bind partner referral for user %s via slug %s: %s",
+                            user_id,
+                            partner_slug_to_bind,
+                            e_bind,
+                            exc_info=True,
+                        )
+
                 logging.info(
-                    f"New user {user_id} added to session. Referred by: {referred_by_user_id or 'N/A'}."
+                    f"New user {user_id} added to session."
                 )
 
                 # Send notification about new user registration
@@ -406,7 +396,7 @@ async def start_command_handler(message: types.Message,
                         user_id=user_id,
                         username=sanitized_username,
                         first_name=sanitized_first_name,
-                        referred_by_id=referred_by_user_id
+                        partner_by_id=bound_partner_user_id
                     )
                 except Exception as e:
                     logging.error(f"Failed to send new user notification: {e}")
@@ -421,15 +411,6 @@ async def start_command_handler(message: types.Message,
         update_payload = {}
         if db_user.language_code != current_lang:
             update_payload["language_code"] = current_lang
-        # Set referral only if not already set AND user is not currently active.
-        # This allows previously subscribed but currently inactive users to be attributed.
-        if referred_by_user_id and db_user.referred_by_id is None:
-            try:
-                is_active_now = await subscription_service.has_active_subscription(session, user_id)
-            except Exception:
-                is_active_now = False
-            if not is_active_now:
-                update_payload["referred_by_id"] = referred_by_user_id
         if sanitized_username != db_user.username:
             update_payload["username"] = sanitized_username
         if sanitized_first_name != db_user.first_name:
@@ -450,20 +431,20 @@ async def start_command_handler(message: types.Message,
                     f"Failed to update existing user {user_id} in session: {e_update}",
                     exc_info=True)
 
-    # Attribute user to ad campaign if start param provided
-    if ad_start_param:
+    if settings.PARTNER_PROGRAM_ENABLED and partner_slug_to_bind and not bound_partner_user_id:
         try:
-            from db.dal import ad_dal as _ad_dal
-            campaign = await _ad_dal.get_campaign_by_start_param(session, ad_start_param)
-            if campaign and campaign.is_active:
-                await _ad_dal.ensure_attribution(session, user_id=user_id, campaign_id=campaign.ad_campaign_id)
-                await session.commit()
-        except Exception as e_attr:
-            logging.error(f"Failed to attribute user {user_id} to ad '{ad_start_param}': {e_attr}")
-            try:
-                await session.rollback()
-            except Exception as exc:
-                logging.debug("Suppressed exception in bot/handlers/user/start.py: %s", exc)
+            bind_result = await partner_service.bind_referred_user_by_slug(
+                session, invited_user_id=user_id, slug=partner_slug_to_bind
+            )
+            bound_partner_user_id = bind_result.get("partner_user_id")
+        except Exception as e_bind:
+            logging.error(
+                "Failed to bind partner referral for user %s via slug %s: %s",
+                user_id,
+                partner_slug_to_bind,
+                e_bind,
+                exc_info=True,
+            )
 
     if not await ensure_required_channel_subscription(message, settings, i18n,
                                                       current_lang, session,
@@ -724,7 +705,7 @@ async def select_language_callback_handler(
 async def main_action_callback_handler(
         callback: types.CallbackQuery, state: FSMContext, settings: Settings,
         i18n_data: dict, bot: Bot, subscription_service: SubscriptionService,
-        referral_service: ReferralService, panel_service: PanelApiService,
+        partner_service: PartnerService, panel_service: PanelApiService,
         promo_code_service: PromoCodeService, session: AsyncSession):
     action = callback.data.split(":")[1]
     user_id = callback.from_user.id
@@ -734,7 +715,7 @@ async def main_action_callback_handler(
                                            ) if i18n else key
 
     from . import subscription as user_subscription_handlers
-    from . import referral as user_referral_handlers
+    from . import partners as user_partners_handlers
     from . import promo_user as user_promo_handlers
     from . import trial_handler as user_trial_handlers
 
@@ -753,13 +734,13 @@ async def main_action_callback_handler(
         await user_subscription_handlers.my_devices_command_handler(
             callback, i18n_data, settings, panel_service, subscription_service,
             session, bot)
-    elif action == "referral":
-        if not settings.REFERRAL_ENABLED:
-            await callback.answer(_("referral_no_bonuses_configured"),
+    elif action == "partners":
+        if not settings.PARTNER_PROGRAM_ENABLED:
+            await callback.answer(_("partners_program_disabled"),
                                   show_alert=True)
             return
-        await user_referral_handlers.referral_command_handler(
-            callback, settings, i18n_data, referral_service, bot, session)
+        await user_partners_handlers.show_partner_dashboard(
+            callback, settings, i18n_data, partner_service, bot, session)
     elif action == "apply_promo":
         await user_promo_handlers.prompt_promo_code_input(
             callback, state, i18n_data, settings, session)

@@ -54,93 +54,9 @@ def _run_legacy_migrator_compatibility(connection: Connection) -> None:
         user_alter_statements.append(
             "ALTER TABLE users ADD COLUMN channel_subscription_verified_for BIGINT"
         )
-    if "referral_code" not in users_columns:
-        user_alter_statements.append(
-            "ALTER TABLE users ADD COLUMN referral_code VARCHAR(16)"
-        )
 
     for statement in user_alter_statements:
         connection.execute(text(statement))
-
-    users_columns = {
-        column["name"]
-        for column in inspect(connection).get_columns("users")
-    }
-    if "referral_code" in users_columns:
-        connection.execute(
-            text(
-                """
-                UPDATE users
-                SET referral_code = NULLIF(UPPER(BTRIM(referral_code)), '')
-                WHERE referral_code IS NOT NULL
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                WITH duplicate_codes AS (
-                    SELECT
-                        user_id,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY referral_code
-                            ORDER BY user_id
-                        ) AS rn
-                    FROM users
-                    WHERE referral_code IS NOT NULL
-                )
-                UPDATE users AS u
-                SET referral_code = UPPER(
-                    SUBSTRING(
-                        md5(
-                            u.user_id::text
-                            || clock_timestamp()::text
-                            || random()::text
-                        )
-                        FROM 1 FOR 9
-                    )
-                )
-                FROM duplicate_codes AS d
-                WHERE u.user_id = d.user_id
-                  AND d.rn > 1
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                WITH generated_codes AS (
-                    SELECT
-                        user_id,
-                        UPPER(
-                            SUBSTRING(
-                                md5(
-                                    user_id::text
-                                    || clock_timestamp()::text
-                                    || random()::text
-                                )
-                                FROM 1 FOR 9
-                            )
-                        ) AS referral_code
-                    FROM users
-                    WHERE referral_code IS NULL
-                )
-                UPDATE users AS u
-                SET referral_code = g.referral_code
-                FROM generated_codes AS g
-                WHERE u.user_id = g.user_id
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS uq_users_referral_code
-                ON users (referral_code)
-                WHERE referral_code IS NOT NULL
-                """
-            )
-        )
 
     db_inspector = inspect(connection)
     if db_inspector.has_table("payments"):

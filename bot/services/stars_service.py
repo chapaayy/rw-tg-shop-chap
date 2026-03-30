@@ -9,23 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.settings import Settings
 from db.dal import payment_dal, user_dal
 from .subscription_service import SubscriptionService
-from .referral_service import ReferralService
+from .partner_service import PartnerService
 from bot.middlewares.i18n import JsonI18n
 from .notification_service import NotificationService
 from bot.keyboards.inline.user_keyboards import get_connect_and_main_keyboard
-from bot.utils.text_sanitizer import sanitize_display_name, username_for_display
 from bot.utils.config_link import prepare_config_links
 
 
 class StarsService:
     def __init__(self, bot: Bot, settings: Settings, i18n: JsonI18n,
                  subscription_service: SubscriptionService,
-                 referral_service: ReferralService):
+                 partner_service: PartnerService):
         self.bot = bot
         self.settings = settings
         self.i18n = i18n
         self.subscription_service = subscription_service
-        self.referral_service = referral_service
+        self.partner_service = partner_service
 
     def _resolve_base_stars_price(self, months: float, sale_mode: str) -> Optional[int]:
         stars_price_source = (
@@ -156,7 +155,6 @@ class StarsService:
         promo_code_id_from_payment = payment_record.promo_code_id if payment_record else None
 
         activation_details = None
-        referral_bonus = None
         try:
             provider_payment_id = str(
                 message.successful_payment.provider_payment_charge_id
@@ -190,14 +188,14 @@ class StarsService:
                     f"Failed to activate subscription after stars payment {payment_db_id}"
                 )
 
-            if sale_mode != "traffic":
-                referral_bonus = await self.referral_service.apply_referral_bonuses_for_payment(
-                    session,
-                    message.from_user.id,
-                    int(months) or 1,
-                    current_payment_db_id=payment_db_id,
-                    skip_if_active_before_payment=False,
-                )
+            await self.partner_service.apply_partner_commission_for_payment(
+                session,
+                payment_id=payment_db_id,
+                invited_user_id=message.from_user.id,
+                payment_amount=float(stars_amount),
+                sale_mode=sale_mode,
+                currency="XTR",
+            )
             await session.commit()
         except Exception as e_upd:
             await session.rollback()
@@ -206,10 +204,8 @@ class StarsService:
                 exc_info=True)
             return
 
-        applied_days = referral_bonus.get("referee_bonus_applied_days") if referral_bonus else None
-        final_end = referral_bonus.get("referee_new_end_date") if referral_bonus else None
-        if not final_end:
-            final_end = activation_details["end_date"]
+        final_end = activation_details["end_date"]
+        applied_promo_days = int(activation_details.get("applied_promo_bonus_days") or 0)
 
         # Always use user's language from DB for user-facing messages
         db_user = await user_dal.get_user_by_id(session, message.from_user.id)
@@ -228,24 +224,12 @@ class StarsService:
                 end_date=final_end.strftime('%Y-%m-%d'),
                 config_link=config_link_text,
             )
-        elif applied_days:
-            inviter_name_display = _("friend_placeholder")
-            db_user = await user_dal.get_user_by_id(session, message.from_user.id)
-            if db_user and db_user.referred_by_id:
-                inviter = await user_dal.get_user_by_id(session, db_user.referred_by_id)
-                if inviter:
-                    safe_name = sanitize_display_name(inviter.first_name) if inviter.first_name else None
-                    if safe_name:
-                        inviter_name_display = safe_name
-                    elif inviter.username:
-                        inviter_name_display = username_for_display(inviter.username, with_at=False)
+        elif applied_promo_days > 0:
             success_msg = _(
-                "payment_successful_with_referral_bonus_full",
+                "payment_successful_with_promo_full",
                 months=months,
-                base_end_date=activation_details["end_date"].strftime('%Y-%m-%d'),
-                bonus_days=applied_days,
-                final_end_date=final_end.strftime('%Y-%m-%d'),
-                inviter_name=inviter_name_display,
+                bonus_days=applied_promo_days,
+                end_date=final_end.strftime('%Y-%m-%d'),
                 config_link=config_link_text,
             )
         else:

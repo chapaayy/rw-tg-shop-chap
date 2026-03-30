@@ -25,7 +25,7 @@ async def build_and_start_web_app(
         "yookassa_service",
         "lknpd_service",
         "subscription_service",
-        "referral_service",
+        "partner_service",
         "panel_service",
         "stars_service",
         "freekassa_service",

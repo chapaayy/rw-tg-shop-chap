@@ -7,7 +7,7 @@ from bot.middlewares.i18n import JsonI18n
 from bot.services.yookassa_service import YooKassaService
 from bot.services.panel_api_service import PanelApiService
 from bot.services.subscription_service import SubscriptionService
-from bot.services.referral_service import ReferralService
+from bot.services.partner_service import PartnerService
 from bot.services.promo_code_service import PromoCodeService
 from bot.services.stars_service import StarsService
 from bot.services.crypto_pay_service import CryptoPayService
@@ -27,9 +27,9 @@ def build_core_services(
 ):
     panel_service = PanelApiService(settings)
     subscription_service = SubscriptionService(settings, panel_service, bot, i18n)
-    referral_service = ReferralService(settings, subscription_service, bot, i18n)
+    partner_service = PartnerService(settings, bot, i18n)
     promo_code_service = PromoCodeService(settings, subscription_service, bot, i18n)
-    stars_service = StarsService(bot, settings, i18n, subscription_service, referral_service)
+    stars_service = StarsService(bot, settings, i18n, subscription_service, partner_service)
     cryptopay_service = CryptoPayService(
         settings.CRYPTOPAY_TOKEN,
         settings.CRYPTOPAY_NETWORK,
@@ -38,7 +38,7 @@ def build_core_services(
         i18n,
         async_session_factory,
         subscription_service,
-        referral_service,
+        partner_service,
     )
     freekassa_service = FreeKassaService(
         bot=bot,
@@ -46,7 +46,7 @@ def build_core_services(
         i18n=i18n,
         async_session_factory=async_session_factory,
         subscription_service=subscription_service,
-        referral_service=referral_service,
+        partner_service=partner_service,
     )
     platega_service = PlategaService(
         bot=bot,
@@ -54,7 +54,7 @@ def build_core_services(
         i18n=i18n,
         async_session_factory=async_session_factory,
         subscription_service=subscription_service,
-        referral_service=referral_service,
+        partner_service=partner_service,
         default_return_url=bot_username_for_default_return,
     )
     severpay_service = SeverPayService(
@@ -63,7 +63,7 @@ def build_core_services(
         i18n=i18n,
         async_session_factory=async_session_factory,
         subscription_service=subscription_service,
-        referral_service=referral_service,
+        partner_service=partner_service,
         default_return_url=bot_username_for_default_return,
     )
     panel_webhook_service = PanelWebhookService(bot, settings, i18n, async_session_factory, panel_service)
@@ -94,7 +94,7 @@ def build_core_services(
     return {
         "panel_service": panel_service,
         "subscription_service": subscription_service,
-        "referral_service": referral_service,
+        "partner_service": partner_service,
         "promo_code_service": promo_code_service,
         "stars_service": stars_service,
         "cryptopay_service": cryptopay_service,

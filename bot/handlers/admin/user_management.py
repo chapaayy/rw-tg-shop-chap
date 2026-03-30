@@ -15,7 +15,6 @@ from bot.states.admin_states import AdminStates
 from bot.keyboards.inline.admin_keyboards import get_back_to_admin_panel_keyboard
 from bot.services.subscription_service import SubscriptionService
 from bot.services.panel_api_service import PanelApiService
-from bot.services.referral_service import ReferralService
 from bot.middlewares.i18n import JsonI18n
 from bot.utils import get_message_content, send_direct_message
 from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
@@ -106,8 +105,7 @@ async def user_search_prompt_handler(callback: types.CallbackQuery,
     await state.set_state(AdminStates.waiting_for_user_search)
 
 
-def get_user_card_keyboard(user_id: int, i18n_instance, lang: str,
-                           referrer_id: Optional[int] = None) -> InlineKeyboardBuilder:
+def get_user_card_keyboard(user_id: int, i18n_instance, lang: str) -> InlineKeyboardBuilder:
     """Generate keyboard for user management actions"""
     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
     builder = InlineKeyboardBuilder()
@@ -147,11 +145,6 @@ def get_user_card_keyboard(user_id: int, i18n_instance, lang: str,
         text=_(key="user_card_open_profile_button"),
         url=f"tg://user?id={user_id}"
     )
-    if referrer_id:
-        builder.button(
-            text=_(key="user_card_open_referrer_profile_button"),
-            url=f"tg://user?id={referrer_id}"
-        )
 
     # Row 5: Destructive action
     builder.button(
@@ -169,8 +162,7 @@ def get_user_card_keyboard(user_id: int, i18n_instance, lang: str,
         callback_data="admin_action:main"
     )
     
-    quick_links_width = 2 if referrer_id else 1
-    builder.adjust(2, 2, 2, quick_links_width, 1, 2)
+    builder.adjust(2, 2, 2, 1, 1, 2)
     return builder
 
 
@@ -204,8 +196,7 @@ async def _send_with_profile_link_fallback(
 
 async def format_user_card(user: User, session: AsyncSession, 
                           subscription_service: SubscriptionService,
-                          i18n_instance, lang: str,
-                          referral_service: Optional[ReferralService] = None) -> str:
+                          i18n_instance, lang: str) -> str:
     """Format user information as a detailed card"""
     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
     
@@ -236,10 +227,6 @@ async def format_user_card(user: User, session: AsyncSession,
     # Ban status
     ban_status = _("admin_user_status_banned") if user.is_banned else _("admin_user_status_active")
     card_parts.append(f"{_('admin_user_status_label')} {ban_status}")
-    
-    # Referral info
-    if user.referred_by_id:
-        card_parts.append(f"{_('admin_user_referral_label')} {hcode(str(user.referred_by_id))}")
     
     # Panel info
     if user.panel_user_uuid:
@@ -291,23 +278,13 @@ async def format_user_card(user: User, session: AsyncSession,
             # Total amount paid by this user
             total_paid = await payment_dal.get_user_total_paid(session, user.user_id)
             card_parts.append(f"{_('admin_user_total_paid_label')} {hcode(f'{total_paid:.2f} RUB')}")
-            
-            # Total revenue from referrals
-            referral_revenue = await payment_dal.get_referral_revenue(session, user.user_id)
-            card_parts.append(f"{_('admin_user_referral_revenue_label')} {hcode(f'{referral_revenue:.2f} RUB')}")
+
+            partner_income = await payment_dal.get_partner_commission_income(session, user.user_id)
+            partner_turnover = await payment_dal.get_partner_invited_turnover(session, user.user_id)
+            card_parts.append(f"{_('admin_user_partner_income_label')} {hcode(f'{partner_income:.2f} RUB')}")
+            card_parts.append(f"{_('admin_user_partner_turnover_label')} {hcode(f'{partner_turnover:.2f} RUB')}")
         except Exception as e_fin:
             logging.error(f"Failed to build financial analytics for admin card {user.user_id}: {e_fin}")
-
-        # Referral stats
-        if referral_service is not None:
-            try:
-                stats = await referral_service.get_referral_stats(session, user.user_id)
-                invited_count = stats.get('invited_count', 0)
-                purchased_count = stats.get('purchased_count', 0)
-                card_parts.append(f"{_('admin_user_invited_friends_label')} {hcode(str(invited_count))}")
-                card_parts.append(f"{_('admin_user_ref_purchased_label')} {hcode(str(purchased_count))}")
-            except Exception as e_rs:
-                logging.error(f"Failed to build referral stats for admin card {user.user_id}: {e_rs}")
         
     except Exception as e:
         logging.error(f"Error getting user statistics for {user.user_id}: {e}")
@@ -355,13 +332,13 @@ async def process_user_search_handler(message: types.Message, state: FSMContext,
 
     # Format and send user card
     try:
-        referral_service = ReferralService(settings, subscription_service, message.bot, i18n)
-        user_card_text = await format_user_card(user_model, session, subscription_service, i18n, current_lang, referral_service)
+        user_card_text = await format_user_card(
+            user_model, session, subscription_service, i18n, current_lang
+        )
         keyboard = get_user_card_keyboard(
             user_model.user_id,
             i18n,
             current_lang,
-            user_model.referred_by_id
         )
         
         await _send_with_profile_link_fallback(
@@ -615,15 +592,13 @@ async def handle_refresh_user_card(callback: types.CallbackQuery, user: User,
             await callback.answer("User not found", show_alert=True)
             return
         
-        from config.settings import Settings as _Settings
-        _settings = _Settings()
-        referral_service = ReferralService(_settings, subscription_service, callback.message.bot, i18n_instance)
-        user_card_text = await format_user_card(fresh_user, session, subscription_service, i18n_instance, lang, referral_service)
+        user_card_text = await format_user_card(
+            fresh_user, session, subscription_service, i18n_instance, lang
+        )
         keyboard = get_user_card_keyboard(
             fresh_user.user_id,
             i18n_instance,
             lang,
-            fresh_user.referred_by_id
         )
         markup = keyboard.as_markup()
         
@@ -891,13 +866,13 @@ async def process_subscription_days_handler(message: types.Message, state: FSMCo
             # Show updated user card
             user = await user_dal.get_user_by_id(session, target_user_id)
             if user:
-                referral_service = ReferralService(settings, subscription_service, message.bot, i18n)
-                user_card_text = await format_user_card(user, session, subscription_service, i18n, current_lang, referral_service)
+                user_card_text = await format_user_card(
+                    user, session, subscription_service, i18n, current_lang
+                )
                 keyboard = get_user_card_keyboard(
                     user.user_id,
                     i18n,
                     current_lang,
-                    user.referred_by_id
                 )
                 
                 await _send_with_profile_link_fallback(
@@ -1000,13 +975,13 @@ async def process_direct_message_handler(message: types.Message, state: FSMConte
         from bot.services.panel_api_service import PanelApiService
         async with PanelApiService(settings) as panel_service:
             subscription_service = SubscriptionService(settings, panel_service)
-            referral_service = ReferralService(settings, subscription_service, bot, i18n)
-            user_card_text = await format_user_card(target_user, session, subscription_service, i18n, current_lang, referral_service)
+            user_card_text = await format_user_card(
+                target_user, session, subscription_service, i18n, current_lang
+            )
             keyboard = get_user_card_keyboard(
                 target_user.user_id,
                 i18n,
                 current_lang,
-                target_user.referred_by_id
             )
             
             await _send_with_profile_link_fallback(
@@ -1299,20 +1274,18 @@ async def user_card_from_list_handler(callback: types.CallbackQuery,
         user_id,
         i18n,
         current_lang,
-        user.referred_by_id
     )
     keyboard.button(
         text=_("admin_user_back_to_list_button"),
         callback_data=f"admin_action:users_list:{page}"
     )
-    quick_links_width = 2 if user.referred_by_id else 1
-    keyboard.adjust(2, 2, 2, quick_links_width, 1, 2, 1)
+    keyboard.adjust(2, 2, 2, 1, 1, 2, 1)
     
     # Format user card
     try:
-        from bot.services.referral_service import ReferralService
-        referral_service = ReferralService(settings, subscription_service, bot, i18n)
-        user_card_text = await format_user_card(user, session, subscription_service, i18n, current_lang, referral_service)
+        user_card_text = await format_user_card(
+            user, session, subscription_service, i18n, current_lang
+        )
         markup = keyboard.as_markup()
         
         await _send_with_profile_link_fallback(

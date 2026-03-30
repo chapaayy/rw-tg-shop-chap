@@ -750,7 +750,7 @@ class SubscriptionService:
     ) -> Optional[datetime]:
         reason_lower = (reason or "").lower()
         apply_main_traffic_limit = any(
-            keyword in reason_lower for keyword in ("admin", "promo code", "referral", "bonus")
+            keyword in reason_lower for keyword in ("admin", "promo code", "bonus")
         )
 
         user = await user_dal.get_user_by_id(session, user_id)
@@ -786,7 +786,7 @@ class SubscriptionService:
             start_date = datetime.now(timezone.utc)
             new_end_date_obj = start_date + timedelta(days=bonus_days)
 
-            # Apply main traffic limit for admin/referral/promo bonuses, fallback to trial limit otherwise
+            # Apply main traffic limit for admin/promo bonuses, fallback to trial limit otherwise
             traffic_limit = (
                 self.settings.user_traffic_limit_bytes
                 if apply_main_traffic_limit

@@ -1,6 +1,4 @@
 import logging
-import secrets
-import string
 from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -17,55 +15,10 @@ from ..models import (
     MessageLog,
     UserBilling,
     UserPaymentMethod,
-    AdAttribution,
+    PartnerAccount,
+    PartnerCommission,
+    PartnerReferral,
 )
-
-REFERRAL_CODE_ALPHABET = string.ascii_uppercase + string.digits
-REFERRAL_CODE_LENGTH = 9
-MAX_REFERRAL_CODE_ATTEMPTS = 25
-
-
-def _generate_referral_code_candidate() -> str:
-    return "".join(
-        secrets.choice(REFERRAL_CODE_ALPHABET) for _ in range(REFERRAL_CODE_LENGTH)
-    )
-
-
-async def _referral_code_exists(session: AsyncSession, code: str) -> bool:
-    stmt = select(User.user_id).where(User.referral_code == code)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none() is not None
-
-
-async def generate_unique_referral_code(session: AsyncSession) -> str:
-    """
-    Generate a unique referral code consisting of uppercase alphanumeric characters.
-    Retries until a free code is found or raises RuntimeError after exceeding attempts.
-    """
-    for _ in range(MAX_REFERRAL_CODE_ATTEMPTS):
-        candidate = _generate_referral_code_candidate()
-        if not await _referral_code_exists(session, candidate):
-            return candidate
-    raise RuntimeError("Failed to generate a unique referral code after several attempts.")
-
-
-async def ensure_referral_code(session: AsyncSession, user: User) -> str:
-    """
-    Ensure the provided user has a referral code, generating and persisting it if missing.
-    Returns the existing or newly generated code.
-    """
-    if user.referral_code:
-        normalized = user.referral_code.strip().upper()
-        if normalized != user.referral_code:
-            user.referral_code = normalized
-            await session.flush()
-            await session.refresh(user)
-        return user.referral_code
-
-    user.referral_code = await generate_unique_referral_code(session)
-    await session.flush()
-    await session.refresh(user)
-    return user.referral_code
 
 
 async def get_user_by_id(session: AsyncSession, user_id: int) -> Optional[User]:
@@ -101,11 +54,6 @@ async def create_user(session: AsyncSession, user_data: Dict[str, Any]) -> Tuple
     if "registration_date" not in user_data:
         user_data["registration_date"] = datetime.now(timezone.utc)
 
-    if not user_data.get("referral_code"):
-        user_data["referral_code"] = await generate_unique_referral_code(session)
-    else:
-        user_data["referral_code"] = user_data["referral_code"].strip().upper()
-
     # Use PostgreSQL upsert to avoid IntegrityError on concurrent inserts
     stmt = (
         pg_insert(User)
@@ -123,24 +71,13 @@ async def create_user(session: AsyncSession, user_data: Dict[str, Any]) -> Tuple
     user = await get_user_by_id(session, user_id)
 
     if created and user is not None:
-        logging.info(
-            f"New user {user.user_id} created in DAL. Referred by: {user.referred_by_id or 'N/A'}."
-        )
+        logging.info(f"New user {user.user_id} created in DAL.")
     elif user is not None:
         logging.info(
             f"User {user.user_id} already exists in DAL. Proceeding without creation."
         )
 
     return user, created
-
-
-async def get_user_by_referral_code(session: AsyncSession, referral_code: str) -> Optional[User]:
-    normalized = referral_code.strip().upper()
-    if not normalized:
-        return None
-    stmt = select(User).where(User.referral_code == normalized)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
 
 
 async def update_user(
@@ -260,9 +197,9 @@ async def get_enhanced_user_statistics(session: AsyncSession) -> Dict[str, Any]:
     # Inactive users (no active subscription)
     inactive_users = total_users - paid_subs_users - trial_users - banned_users
     
-    # Users attracted via referral
-    referral_users_stmt = select(func.count(User.user_id)).where(User.referred_by_id.is_not(None))
-    referral_users = (await session.execute(referral_users_stmt)).scalar() or 0
+    # Users attracted via partner links
+    partner_users_stmt = select(func.count(PartnerReferral.referral_id))
+    partner_users = (await session.execute(partner_users_stmt)).scalar() or 0
     
     return {
         "total_users": total_users,
@@ -271,7 +208,7 @@ async def get_enhanced_user_statistics(session: AsyncSession) -> Dict[str, Any]:
         "paid_subscriptions": paid_subs_users,
         "trial_users": trial_users,
         "inactive_users": max(0, inactive_users),
-        "referral_users": referral_users
+        "partner_users": int(partner_users),
     }
 
 
@@ -333,11 +270,6 @@ async def delete_user_and_relations(session: AsyncSession, user_id: int) -> bool
     if not user:
         return False
 
-    # Ensure referral pointers do not block deletion
-    await session.execute(
-        update(User).where(User.referred_by_id == user_id).values(referred_by_id=None)
-    )
-
     # Clean up dependent tables that do not cascade automatically
     await session.execute(
         delete(MessageLog).where(
@@ -367,7 +299,23 @@ async def delete_user_and_relations(session: AsyncSession, user_id: int) -> bool
         delete(UserPaymentMethod).where(UserPaymentMethod.user_id == user_id)
     )
     await session.execute(delete(UserBilling).where(UserBilling.user_id == user_id))
-    await session.execute(delete(AdAttribution).where(AdAttribution.user_id == user_id))
+    await session.execute(
+        delete(PartnerCommission).where(
+            or_(
+                PartnerCommission.partner_user_id == user_id,
+                PartnerCommission.invited_user_id == user_id,
+            )
+        )
+    )
+    await session.execute(
+        delete(PartnerReferral).where(
+            or_(
+                PartnerReferral.partner_user_id == user_id,
+                PartnerReferral.invited_user_id == user_id,
+            )
+        )
+    )
+    await session.execute(delete(PartnerAccount).where(PartnerAccount.user_id == user_id))
 
     await session.delete(user)
     await session.flush()

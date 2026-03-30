@@ -21,16 +21,11 @@ class User(Base):
                                server_default=func.now())
     is_banned = Column(Boolean, default=False)
     panel_user_uuid = Column(String, nullable=True, unique=True, index=True)
-    referral_code = Column(String(16), nullable=True, unique=True, index=True)
-    referred_by_id = Column(BigInteger,
-                            ForeignKey("users.user_id"),
-                            nullable=True)
     channel_subscription_verified = Column(Boolean, nullable=True)
     channel_subscription_checked_at = Column(DateTime(timezone=True),
                                              nullable=True)
     channel_subscription_verified_for = Column(BigInteger, nullable=True)
 
-    referrer = relationship("User", remote_side=[user_id], backref="referrals")
     subscriptions = relationship("Subscription",
                                  back_populates="user",
                                  cascade="all, delete-orphan")
@@ -271,33 +266,71 @@ class PanelSyncStatus(Base):
     __table_args__ = (UniqueConstraint('id'), )
 
 
-class AdCampaign(Base):
-    __tablename__ = "ad_campaigns"
+class PartnerProgramSettings(Base):
+    __tablename__ = "partner_program_settings"
 
-    ad_campaign_id = Column(Integer, primary_key=True, autoincrement=True)
-    source = Column(String, nullable=False, index=True)
-    start_param = Column(String, nullable=False, unique=True, index=True)
-    cost = Column(Float, nullable=False, default=0.0)
-    is_active = Column(Boolean, default=True, index=True)
+    id = Column(Integer, primary_key=True, default=1, autoincrement=False)
+    is_enabled = Column(Boolean, default=True, nullable=False)
+    default_percent = Column(Float, default=10.0, nullable=False)
+    allow_traffic_commission = Column(Boolean, default=False, nullable=False)
+    min_payment_amount = Column(Float, default=0.0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
-    attributions = relationship(
-        "AdAttribution",
-        back_populates="campaign",
-        cascade="all, delete-orphan",
-    )
-
-    def __repr__(self):
-        return f"<AdCampaign(id={self.ad_campaign_id}, source='{self.source}', start_param='{self.start_param}', cost={self.cost})>"
+    __table_args__ = (UniqueConstraint("id"),)
 
 
-class AdAttribution(Base):
-    __tablename__ = "ad_attributions"
+class PartnerAccount(Base):
+    __tablename__ = "partner_accounts"
 
-    user_id = Column(BigInteger, ForeignKey("users.user_id"), primary_key=True, index=True)
-    ad_campaign_id = Column(Integer, ForeignKey("ad_campaigns.ad_campaign_id"), nullable=False, index=True)
-    first_start_at = Column(DateTime(timezone=True), server_default=func.now())
-    trial_activated_at = Column(DateTime(timezone=True), nullable=True)
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), primary_key=True)
+    default_slug = Column(String(32), nullable=False, unique=True, index=True)
+    custom_slug = Column(String(32), nullable=True, unique=True, index=True)
+    personal_percent = Column(Float, nullable=True)
+    is_enabled = Column(Boolean, default=True, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
     user = relationship("User")
-    campaign = relationship("AdCampaign", back_populates="attributions")
+
+
+class PartnerReferral(Base):
+    __tablename__ = "partner_referrals"
+
+    referral_id = Column(Integer, primary_key=True, autoincrement=True)
+    partner_user_id = Column(
+        BigInteger, ForeignKey("users.user_id"), nullable=False, index=True
+    )
+    invited_user_id = Column(
+        BigInteger, ForeignKey("users.user_id"), nullable=False, unique=True, index=True
+    )
+    linked_slug = Column(String(32), nullable=True)
+    linked_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    partner_user = relationship("User", foreign_keys=[partner_user_id])
+    invited_user = relationship("User", foreign_keys=[invited_user_id])
+
+
+class PartnerCommission(Base):
+    __tablename__ = "partner_commissions"
+
+    commission_id = Column(Integer, primary_key=True, autoincrement=True)
+    partner_user_id = Column(
+        BigInteger, ForeignKey("users.user_id"), nullable=False, index=True
+    )
+    invited_user_id = Column(
+        BigInteger, ForeignKey("users.user_id"), nullable=False, index=True
+    )
+    payment_id = Column(
+        Integer, ForeignKey("payments.payment_id"), nullable=False, unique=True, index=True
+    )
+    payment_amount = Column(Float, nullable=False)
+    percent_applied = Column(Float, nullable=False)
+    commission_amount = Column(Float, nullable=False)
+    currency = Column(String, nullable=False, default="RUB")
+    sale_mode = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    partner_user = relationship("User", foreign_keys=[partner_user_id])
+    invited_user = relationship("User", foreign_keys=[invited_user_id])
+    payment = relationship("Payment")

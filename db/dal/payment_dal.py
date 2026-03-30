@@ -392,22 +392,25 @@ async def get_user_total_paid(session: AsyncSession, user_id: int) -> float:
     return float(total or 0)
 
 
-async def get_referral_revenue(session: AsyncSession, referrer_id: int) -> float:
-    """Get total revenue generated from referred users' payments.
-    
-    This calculates the sum of all succeeded payments made by users
-    where referred_by_id equals the referrer_id.
-    """
-    from db.models import User
-    
-    stmt = select(func.sum(Payment.amount)).join(
-        User, Payment.user_id == User.user_id
-    ).where(
-        and_(
-            User.referred_by_id == referrer_id,
-            Payment.status == 'succeeded'
-        )
+async def get_partner_invited_turnover(session: AsyncSession, partner_user_id: int) -> float:
+    """Get total succeeded payment turnover from invited users for a partner."""
+    from db.models import PartnerCommission
+
+    stmt = select(func.coalesce(func.sum(PartnerCommission.payment_amount), 0.0)).where(
+        PartnerCommission.partner_user_id == partner_user_id
     )
     result = await session.execute(stmt)
     total = result.scalar()
-    return float(total or 0)
+    return float(total or 0.0)
+
+
+async def get_partner_commission_income(session: AsyncSession, partner_user_id: int) -> float:
+    """Get total partner commission income."""
+    from db.models import PartnerCommission
+
+    stmt = select(func.coalesce(func.sum(PartnerCommission.commission_amount), 0.0)).where(
+        PartnerCommission.partner_user_id == partner_user_id
+    )
+    result = await session.execute(stmt)
+    total = result.scalar()
+    return float(total or 0.0)

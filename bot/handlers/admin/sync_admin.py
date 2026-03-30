@@ -132,7 +132,6 @@ async def perform_sync(
                                 "language_code": "ru",  # Default language
                                 "panel_user_uuid": panel_uuid,
                                 "is_banned": False,
-                                "referred_by_id": None,
                             }
 
                             new_user, was_created = await user_dal.create_user(

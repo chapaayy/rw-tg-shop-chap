@@ -14,7 +14,7 @@ from yookassa.domain.models.amount import Amount as YooKassaAmount
 from db.dal import payment_dal, user_dal, user_billing_dal
 
 from bot.services.subscription_service import SubscriptionService
-from bot.services.referral_service import ReferralService
+from bot.services.partner_service import PartnerService
 from bot.services.panel_api_service import PanelApiService
 from bot.services.yookassa_service import YooKassaService
 from bot.services.lknpd_service import LknpdService
@@ -22,7 +22,6 @@ from bot.middlewares.i18n import JsonI18n
 from config.settings import Settings
 from bot.services.notification_service import NotificationService
 from bot.keyboards.inline.user_keyboards import get_connect_and_main_keyboard
-from bot.utils.text_sanitizer import sanitize_display_name, username_for_display
 from bot.utils.config_link import prepare_config_links
 
 YOOKASSA_EVENT_PAYMENT_SUCCEEDED = 'payment.succeeded'
@@ -35,7 +34,7 @@ async def process_successful_payment(session: AsyncSession, bot: Bot,
                                      i18n: JsonI18n, settings: Settings,
                                      panel_service: PanelApiService,
                                      subscription_service: SubscriptionService,
-                                     referral_service: ReferralService,
+                                     partner_service: PartnerService,
                                      yookassa_service: Optional[YooKassaService] = None,
                                      lknpd_service: Optional[LknpdService] = None) -> bool:
     metadata = payment_info_from_webhook.get("metadata", {})
@@ -369,27 +368,18 @@ async def process_successful_payment(session: AsyncSession, bot: Bot,
             )
             return False
 
-        base_subscription_end_date = activation_details['end_date']
-        final_end_date_for_user = base_subscription_end_date
+        final_end_date_for_user = activation_details['end_date']
         applied_promo_bonus_days = activation_details.get(
             "applied_promo_bonus_days", 0)
 
-        referral_bonus_info = None
-        if sale_mode != "traffic":
-            referral_bonus_info = await referral_service.apply_referral_bonuses_for_payment(
-                session,
-                user_id,
-                months_for_activation or int(subscription_months) or 1,
-                current_payment_db_id=payment_db_id,
-                skip_if_active_before_payment=False,
-            )
-        applied_referee_bonus_days_from_referral: Optional[int] = None
-        if referral_bonus_info and referral_bonus_info.get(
-                "referee_new_end_date"):
-            final_end_date_for_user = referral_bonus_info[
-                "referee_new_end_date"]
-            applied_referee_bonus_days_from_referral = referral_bonus_info.get(
-                "referee_bonus_applied_days")
+        await partner_service.apply_partner_commission_for_payment(
+            session,
+            payment_id=payment_db_id,
+            invited_user_id=user_id,
+            payment_amount=payment_value,
+            sale_mode=sale_mode,
+            currency="RUB",
+        )
 
         # Use user's DB language for all user-facing messages
         user_lang = db_user.language_code if db_user and db_user.language_code else settings.DEFAULT_LANGUAGE
@@ -445,28 +435,7 @@ async def process_successful_payment(session: AsyncSession, bot: Bot,
                 preserve_message=True,
             )
         else:
-            if applied_referee_bonus_days_from_referral and final_end_date_for_user:
-                inviter_name_display = _("friend_placeholder")
-                if db_user and db_user.referred_by_id:
-                    inviter = await user_dal.get_user_by_id(
-                        session, db_user.referred_by_id)
-                    if inviter:
-                        safe_name = sanitize_display_name(inviter.first_name) if inviter.first_name else None
-                        if safe_name:
-                            inviter_name_display = safe_name
-                        elif inviter.username:
-                            inviter_name_display = username_for_display(inviter.username, with_at=False)
-
-                details_message = _(
-                    "payment_successful_with_referral_bonus_full",
-                    months=int(subscription_months),
-                    base_end_date=base_subscription_end_date.strftime('%Y-%m-%d'),
-                    bonus_days=applied_referee_bonus_days_from_referral,
-                    final_end_date=final_end_date_for_user.strftime('%Y-%m-%d'),
-                    inviter_name=inviter_name_display,
-                    config_link=config_link_text,
-                )
-            elif applied_promo_bonus_days > 0 and final_end_date_for_user:
+            if applied_promo_bonus_days > 0 and final_end_date_for_user:
                 details_message = _(
                     "payment_successful_with_promo_full",
                     months=int(subscription_months),
@@ -595,7 +564,7 @@ async def yookassa_webhook_route(request: web.Request):
         yookassa_service: Optional[YooKassaService] = request.app.get('yookassa_service')
         subscription_service: SubscriptionService = request.app[
             'subscription_service']
-        referral_service: ReferralService = request.app['referral_service']
+        partner_service: PartnerService = request.app['partner_service']
         lknpd_service: Optional[LknpdService] = request.app.get('lknpd_service')
         async_session_factory: sessionmaker = request.app[
             'async_session_factory']
@@ -740,7 +709,7 @@ async def yookassa_webhook_route(request: web.Request):
                         processed = await process_successful_payment(
                             session, bot, payment_dict_for_processing,
                             i18n_instance, settings, panel_service,
-                            subscription_service, referral_service,
+                            subscription_service, partner_service,
                             yookassa_service,
                             lknpd_service)
                         if not processed:

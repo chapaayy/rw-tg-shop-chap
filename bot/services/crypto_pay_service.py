@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import json
 from typing import Optional
 
@@ -12,11 +12,10 @@ from aiocryptopay.models.update import Update
 from config.settings import Settings
 from bot.middlewares.i18n import JsonI18n
 from bot.services.subscription_service import SubscriptionService
-from bot.services.referral_service import ReferralService
+from bot.services.partner_service import PartnerService
 from bot.keyboards.inline.user_keyboards import get_connect_and_main_keyboard
 from bot.services.notification_service import NotificationService
 from db.dal import payment_dal, user_dal
-from bot.utils.text_sanitizer import sanitize_display_name, username_for_display
 from bot.utils.config_link import prepare_config_links
 
 
@@ -30,14 +29,14 @@ class CryptoPayService:
         i18n: JsonI18n,
         async_session_factory: sessionmaker,
         subscription_service: SubscriptionService,
-        referral_service: ReferralService,
+        partner_service: PartnerService,
     ):
         self.bot = bot
         self.settings = settings
         self.i18n = i18n
         self.async_session_factory = async_session_factory
         self.subscription_service = subscription_service
-        self.referral_service = referral_service
+        self.partner_service = partner_service
         if token:
             net = Networks.TEST_NET if str(network).lower() == "testnet" else Networks.MAIN_NET
             self.client = AioCryptoPay(token=token, network=net)
@@ -194,7 +193,7 @@ class CryptoPayService:
         settings: Settings = app["settings"]
         i18n: JsonI18n = app["i18n"]
         subscription_service: SubscriptionService = app["subscription_service"]
-        referral_service: ReferralService = app["referral_service"]
+        partner_service: PartnerService = app["partner_service"]
 
         async with async_session_factory() as session:
             try:
@@ -284,15 +283,14 @@ class CryptoPayService:
                         f"CryptoPay webhook: activation failed for payment {payment_db_id}"
                     )
 
-                referral_bonus = None
-                if sale_mode != "traffic":
-                    referral_bonus = await referral_service.apply_referral_bonuses_for_payment(
-                        session,
-                        user_id,
-                        int(months) or 1,
-                        current_payment_db_id=payment_db_id,
-                        skip_if_active_before_payment=False,
-                    )
+                await partner_service.apply_partner_commission_for_payment(
+                    session,
+                    payment_id=payment_db_id,
+                    invited_user_id=user_id,
+                    payment_amount=float(invoice.amount),
+                    sale_mode=sale_mode,
+                    currency=(payment_record.currency or settings.CRYPTOPAY_ASSET or "RUB"),
+                )
                 await session.commit()
             except Exception as e:
                 await session.rollback()
@@ -308,37 +306,23 @@ class CryptoPayService:
             display_link, button_link = await prepare_config_links(settings, raw_config_link)
             config_link_text = display_link or _("config_link_not_available")
             final_end = activation.get("end_date")
-            applied_days = 0
-            if referral_bonus and referral_bonus.get("referee_new_end_date"):
-                final_end = referral_bonus["referee_new_end_date"]
-                applied_days = referral_bonus.get("referee_bonus_applied_days", 0)
+            applied_promo_days = int(activation.get("applied_promo_bonus_days") or 0) if activation else 0
 
             if sale_mode == "traffic":
                 text = _("payment_successful_traffic_full",
                          traffic_gb=str(int(traffic_gb)) if float(traffic_gb).is_integer() else f"{traffic_gb:g}",
-                         end_date=final_end.strftime('%Y-%m-%d') if final_end else "—",
+                         end_date=final_end.strftime('%Y-%m-%d') if final_end else "",
                          config_link=config_link_text)
-            elif applied_days:
-                inviter_name_display = _("friend_placeholder")
-                if db_user and db_user.referred_by_id:
-                    inviter = await user_dal.get_user_by_id(session, db_user.referred_by_id)
-                    if inviter:
-                        safe_name = sanitize_display_name(inviter.first_name) if inviter.first_name else None
-                        if safe_name:
-                            inviter_name_display = safe_name
-                        elif inviter.username:
-                            inviter_name_display = username_for_display(inviter.username, with_at=False)
-                text = _("payment_successful_with_referral_bonus_full",
+            elif applied_promo_days > 0:
+                text = _("payment_successful_with_promo_full",
                          months=int(months),
-                         base_end_date=activation["end_date"].strftime('%Y-%m-%d'),
-                         bonus_days=applied_days,
-                         final_end_date=final_end.strftime('%Y-%m-%d'),
-                         inviter_name=inviter_name_display,
+                         bonus_days=applied_promo_days,
+                         end_date=final_end.strftime('%Y-%m-%d') if final_end else "",
                          config_link=config_link_text)
             else:
                 text = _("payment_successful_full",
                          months=int(months),
-                         end_date=final_end.strftime('%Y-%m-%d') if final_end else "—",
+                         end_date=final_end.strftime('%Y-%m-%d') if final_end else "",
                          config_link=config_link_text)
 
             markup = get_connect_and_main_keyboard(
@@ -385,3 +369,6 @@ class CryptoPayService:
 async def cryptopay_webhook_route(request: web.Request) -> web.Response:
     service: CryptoPayService = request.app["cryptopay_service"]
     return await service.webhook_route(request)
+
+
+
