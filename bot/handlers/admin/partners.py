@@ -26,6 +26,16 @@ def _translator(i18n_data: dict, settings: Settings) -> Tuple[Optional[JsonI18n]
     return i18n, lang
 
 
+def _extract_partner_and_page(callback_data: Optional[str], expected_action: str) -> Tuple[int, int]:
+    parts = (callback_data or "").split(":")
+    if len(parts) != 4:
+        raise ValueError("Invalid callback format")
+    scope, action, raw_partner_id, raw_page = parts
+    if scope != "admin_partners" or action != expected_action:
+        raise ValueError("Invalid callback payload")
+    return int(raw_partner_id), int(raw_page)
+
+
 def _fmt_username(user) -> str:
     if user.username:
         return f"@{user.username}"
@@ -352,9 +362,9 @@ async def partner_card_callback(
     session: AsyncSession,
 ):
     try:
-        _, _, _, raw_partner_id, raw_page = (callback.data or "").split(":")
-        partner_user_id = int(raw_partner_id)
-        back_page = int(raw_page)
+        partner_user_id, back_page = _extract_partner_and_page(
+            callback.data, "card"
+        )
     except (ValueError, IndexError):
         await callback.answer("Invalid partner", show_alert=True)
         return
@@ -385,9 +395,9 @@ async def partner_toggle_enabled_callback(
     _ = lambda key, **kwargs: i18n.gettext(lang, key, **kwargs)
 
     try:
-        _, _, _, raw_partner_id, raw_page = (callback.data or "").split(":")
-        partner_user_id = int(raw_partner_id)
-        back_page = int(raw_page)
+        partner_user_id, back_page = _extract_partner_and_page(
+            callback.data, "toggle"
+        )
     except (ValueError, IndexError):
         await callback.answer("Invalid partner", show_alert=True)
         return
@@ -419,9 +429,9 @@ async def partner_set_percent_prompt_callback(
         return
     _ = lambda key, **kwargs: i18n.gettext(lang, key, **kwargs)
     try:
-        _, _, _, raw_partner_id, raw_page = (callback.data or "").split(":")
-        partner_user_id = int(raw_partner_id)
-        back_page = int(raw_page)
+        partner_user_id, back_page = _extract_partner_and_page(
+            callback.data, "set_percent_prompt"
+        )
     except (ValueError, IndexError):
         await callback.answer("Invalid partner", show_alert=True)
         return
@@ -512,9 +522,9 @@ async def partner_clear_percent_callback(
     _ = lambda key, **kwargs: i18n.gettext(lang, key, **kwargs)
 
     try:
-        _, _, _, raw_partner_id, raw_page = (callback.data or "").split(":")
-        partner_user_id = int(raw_partner_id)
-        back_page = int(raw_page)
+        partner_user_id, back_page = _extract_partner_and_page(
+            callback.data, "clear_percent"
+        )
     except (ValueError, IndexError):
         await callback.answer("Invalid partner", show_alert=True)
         return
@@ -547,9 +557,9 @@ async def partner_referrals_callback(
     _ = lambda key, **kwargs: i18n.gettext(lang, key, **kwargs)
 
     try:
-        _, _, _, raw_partner_id, raw_page = (callback.data or "").split(":")
-        partner_user_id = int(raw_partner_id)
-        back_page = int(raw_page)
+        partner_user_id, back_page = _extract_partner_and_page(
+            callback.data, "referrals"
+        )
     except (ValueError, IndexError):
         await callback.answer("Invalid partner", show_alert=True)
         return
@@ -603,9 +613,9 @@ async def partner_commissions_callback(
     _ = lambda key, **kwargs: i18n.gettext(lang, key, **kwargs)
 
     try:
-        _, _, _, raw_partner_id, raw_page = (callback.data or "").split(":")
-        partner_user_id = int(raw_partner_id)
-        back_page = int(raw_page)
+        partner_user_id, back_page = _extract_partner_and_page(
+            callback.data, "commissions"
+        )
     except (ValueError, IndexError):
         await callback.answer("Invalid partner", show_alert=True)
         return
