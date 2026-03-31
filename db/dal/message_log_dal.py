@@ -64,13 +64,27 @@ async def count_user_message_logs(session: AsyncSession,
 
 async def create_message_log_no_commit(session: AsyncSession,
                                        log_data: dict) -> MessageLog:
-
-    if log_data.get("target_user_id"):
-        from .user_dal import get_user_by_id
-        target_user = await get_user_by_id(session, log_data["target_user_id"])
-        if not target_user:
+    author_user_id = log_data.get("user_id")
+    if author_user_id is not None:
+        author_exists = await session.execute(
+            select(User.user_id).where(User.user_id == author_user_id)
+        )
+        if author_exists.scalar_one_or_none() is None:
             logging.warning(
-                f"Target user {log_data['target_user_id']} not found for message log. Setting to NULL."
+                "Author user %s not found for message log. Setting to NULL.",
+                author_user_id,
+            )
+            log_data["user_id"] = None
+
+    target_user_id = log_data.get("target_user_id")
+    if target_user_id is not None:
+        target_exists = await session.execute(
+            select(User.user_id).where(User.user_id == target_user_id)
+        )
+        if target_exists.scalar_one_or_none() is None:
+            logging.warning(
+                "Target user %s not found for message log. Setting to NULL.",
+                target_user_id,
             )
             log_data["target_user_id"] = None
 
