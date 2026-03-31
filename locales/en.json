@@ -61,6 +61,8 @@
   "free_kassa_order_info": "Order #{order_id} from {date}",
   "payment_invoice_sent_message": "Telegram has sent the invoice above. Complete the payment or pick another method below.",
   "payment_invoice_sent_message_traffic": "Invoice for {traffic_gb} GB sent above. Complete the payment or pick another method below.",
+  "stars_invoice_pay_button": "⭐️ Pay",
+  "payment_cancelled_short": "Payment canceled.",
   "payment_successful_error_details": "✅ Payment succeeded, but an error occurred displaying details. Your subscription is active. Contact support if anything is wrong.",
   "payment_successful_full": "✅ Payment successful!\nYour {months}-month subscription is active until {end_date}.\n\nConnection key:\n<code>{config_link}</code>\n\nTo connect, open the link and follow the instructions 👇",
   "payment_successful_traffic_full": "✅ Payment successful!\nYour {traffic_gb} GB package is active.\nValidity: {end_date}\n\nConnection key:\n<code>{config_link}</code>\n\nTo connect, open the link and follow the instructions 👇",

@@ -3,7 +3,7 @@ import math
 from typing import Optional
 
 from aiogram import Bot, types
-from aiogram.types import LabeledPrice
+from aiogram.types import InlineKeyboardMarkup, LabeledPrice
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
@@ -54,9 +54,17 @@ class StarsService:
 
         return None
 
-    async def create_invoice(self, session: AsyncSession, user_id: int, months: float,
-                             stars_price: int, description: str, sale_mode: str = "subscription",
-                             promo_code_service=None) -> Optional[int]:
+    async def create_invoice(
+        self,
+        session: AsyncSession,
+        user_id: int,
+        months: float,
+        stars_price: int,
+        description: str,
+        sale_mode: str = "subscription",
+        promo_code_service=None,
+        reply_markup: Optional[InlineKeyboardMarkup] = None,
+    ) -> Optional[int]:
         # Always resolve base price server-side and reject unknown packages.
         resolved_base_price = self._resolve_base_stars_price(months, sale_mode)
         if resolved_base_price is None:
@@ -136,6 +144,7 @@ class StarsService:
                 provider_token=self.settings.STARS_PROVIDER_TOKEN or "",
                 currency="XTR",
                 prices=prices,
+                reply_markup=reply_markup,
             )
             return db_payment_record.payment_id
         except Exception as e_inv:

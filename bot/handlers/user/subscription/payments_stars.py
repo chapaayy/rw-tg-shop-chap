@@ -12,6 +12,25 @@ from config.settings import Settings
 router = Router(name="user_subscription_payments_stars_router")
 
 
+def _build_stars_invoice_keyboard(get_text) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=get_text("stars_invoice_pay_button"),
+                    pay=True,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=get_text("cancel_button"),
+                    callback_data="stars_invoice:cancel",
+                )
+            ],
+        ]
+    )
+
+
 @router.callback_query(F.data.startswith("pay_stars:"))
 async def pay_stars_callback_handler(
     callback: types.CallbackQuery,
@@ -68,35 +87,10 @@ async def pay_stars_callback_handler(
         description=payment_description,
         sale_mode=sale_mode,
         promo_code_service=promo_code_service,
+        reply_markup=_build_stars_invoice_keyboard(get_text),
     )
 
     if payment_db_id:
-        try:
-            await callback.message.edit_text(
-                get_text(
-                    "payment_invoice_sent_message_traffic" if sale_mode == "traffic" else "payment_invoice_sent_message",
-                    months=int(months),
-                    traffic_gb=human_value,
-                ),
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text=get_text("back_to_payment_methods_button"),
-                                callback_data=f"subscribe_period:{human_value}",
-                            )
-                        ],
-                        [
-                            InlineKeyboardButton(
-                                text=get_text("cancel_button"),
-                                callback_data="main_action:subscribe",
-                            )
-                        ],
-                    ]
-                ),
-            )
-        except Exception as e_edit:
-            logging.warning(f"Stars payment: failed to show invoice info message ({e_edit})")
         try:
             await callback.answer()
         except Exception as exc:
@@ -107,6 +101,44 @@ async def pay_stars_callback_handler(
         await callback.answer(get_text("error_payment_gateway"), show_alert=True)
     except Exception as exc:
         logging.debug("Suppressed exception in bot/handlers/user/subscription/payments_stars.py: %s", exc)
+
+
+@router.callback_query(F.data == "stars_invoice:cancel")
+async def cancel_stars_invoice_callback(
+    callback: types.CallbackQuery,
+    settings: Settings,
+    i18n_data: dict,
+    session: AsyncSession,
+    promo_code_service=None,
+):
+    current_lang = i18n_data.get("current_language", settings.DEFAULT_LANGUAGE)
+    i18n: Optional[JsonI18n] = i18n_data.get("i18n_instance")
+    get_text = (lambda key, **kwargs: i18n.gettext(current_lang, key, **kwargs) if i18n else key)
+
+    if callback.message:
+        try:
+            await callback.message.delete()
+        except Exception as e_delete:
+            logging.debug("Failed to delete Stars invoice message: %s", e_delete)
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception as e_markup:
+                logging.debug("Failed to clear Stars invoice markup: %s", e_markup)
+
+    try:
+        await callback.answer(get_text("payment_cancelled_short"))
+    except Exception as exc:
+        logging.debug("Suppressed exception in bot/handlers/user/subscription/payments_stars.py: %s", exc)
+
+    from .core import display_subscription_options
+
+    await display_subscription_options(
+        callback,
+        i18n_data,
+        settings,
+        session,
+        promo_code_service=promo_code_service,
+    )
 
 
 @router.pre_checkout_query()

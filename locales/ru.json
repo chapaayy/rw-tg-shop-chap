@@ -61,6 +61,8 @@
   "free_kassa_order_info": "Заказ №{order_id} от {date}",
   "payment_invoice_sent_message": "Счёт Telegram Stars отправлен выше. Нажмите «Оплатить» или вернитесь к выбору способа ниже.",
   "payment_invoice_sent_message_traffic": "Счет на пакет {traffic_gb} ГБ отправлен выше. Нажмите «Оплатить» или вернитесь к выбору способа ниже.",
+  "stars_invoice_pay_button": "⭐️ Оплатить",
+  "payment_cancelled_short": "Оплата отменена.",
   "payment_successful_error_details": "✅ Оплата прошла успешно, но возникла ошибка при отображении деталей. Ваша подписка активна. Свяжитесь с поддержкой, если что-то не так.",
   "payment_successful_full": "✅ Оплата прошла успешно!\nВаша подписка на {months} мес. активна до {end_date}.\n\nКлюч подключения:\n<code>{config_link}</code>\n\nЧтобы подключиться, перейдите по ссылке и следуйте инструкции 👇",
   "payment_successful_traffic_full": "✅ Оплата прошла успешно!\nВаш пакет {traffic_gb} ГБ активирован.\nДата действия: {end_date}\n\nКлюч подключения:\n<code>{config_link}</code>\n\nЧтобы подключиться, перейдите по ссылке и следуйте инструкции 👇",
