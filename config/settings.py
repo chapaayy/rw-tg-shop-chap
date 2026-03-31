@@ -515,8 +515,54 @@ class Settings(BaseSettings):
         default="INFO",
         description="Global log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
-    LOG_CHAT_ID: Optional[int] = Field(default=None, description="Telegram chat/group ID for sending notifications")
-    LOG_THREAD_ID: Optional[int] = Field(default=None, description="Thread ID for supergroup messages (optional)")
+    LOG_DEFAULT_CHAT_ID: Optional[int] = Field(
+        default=None,
+        description="Default Telegram chat/group ID for sending notifications",
+    )
+    LOG_DEFAULT_THREAD_ID: Optional[int] = Field(
+        default=None,
+        description="Default thread ID for supergroup messages (optional)",
+    )
+    LOG_NEW_USERS_CHAT_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination chat ID for new user registration events",
+    )
+    LOG_NEW_USERS_THREAD_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination thread ID for new user registration events",
+    )
+    LOG_PAYMENTS_CHAT_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination chat ID for payment events",
+    )
+    LOG_PAYMENTS_THREAD_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination thread ID for payment events",
+    )
+    LOG_PROMO_ACTIVATIONS_CHAT_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination chat ID for promo activation events",
+    )
+    LOG_PROMO_ACTIVATIONS_THREAD_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination thread ID for promo activation events",
+    )
+    LOG_TRIAL_ACTIVATIONS_CHAT_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination chat ID for trial activation events",
+    )
+    LOG_TRIAL_ACTIVATIONS_THREAD_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination thread ID for trial activation events",
+    )
+    LOG_SUSPICIOUS_ACTIVITY_CHAT_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination chat ID for suspicious activity events",
+    )
+    LOG_SUSPICIOUS_ACTIVITY_THREAD_ID: Optional[int] = Field(
+        default=None,
+        description="Log destination thread ID for suspicious activity events",
+    )
     LOG_STORE_MESSAGE_CONTENT: bool = Field(
         default=False,
         description="Store message/callback content in message logs",
@@ -602,8 +648,18 @@ class Settings(BaseSettings):
         'PAID_HWID_DEVICE_LIMIT',
         'SEVERPAY_MID',
         'SEVERPAY_LIFETIME_MINUTES',
-        'LOG_CHAT_ID',
-        'LOG_THREAD_ID',
+        'LOG_DEFAULT_CHAT_ID',
+        'LOG_DEFAULT_THREAD_ID',
+        'LOG_NEW_USERS_CHAT_ID',
+        'LOG_NEW_USERS_THREAD_ID',
+        'LOG_PAYMENTS_CHAT_ID',
+        'LOG_PAYMENTS_THREAD_ID',
+        'LOG_PROMO_ACTIVATIONS_CHAT_ID',
+        'LOG_PROMO_ACTIVATIONS_THREAD_ID',
+        'LOG_TRIAL_ACTIVATIONS_CHAT_ID',
+        'LOG_TRIAL_ACTIVATIONS_THREAD_ID',
+        'LOG_SUSPICIOUS_ACTIVITY_CHAT_ID',
+        'LOG_SUSPICIOUS_ACTIVITY_THREAD_ID',
         'YOOKASSA_TAX_SYSTEM_CODE',
         mode='before'
     )

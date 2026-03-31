@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.text_decorations import html_decoration as hd
 from aiogram.exceptions import TelegramBadRequest
 from datetime import datetime, timezone
-from typing import Optional, Union, Dict, Any, Callable
+from typing import Optional, Union, Dict, Any, Callable, Tuple
 
 from config.settings import Settings
 from sqlalchemy.orm import sessionmaker
@@ -23,11 +23,54 @@ from bot.utils.telegram_markup import (
 
 class NotificationService:
     """Enhanced notification service for sending messages to admins and log channels"""
+    _EVENT_ROUTE_FIELDS: Dict[str, Tuple[str, str]] = {
+        "new_users": ("LOG_NEW_USERS_CHAT_ID", "LOG_NEW_USERS_THREAD_ID"),
+        "payments": ("LOG_PAYMENTS_CHAT_ID", "LOG_PAYMENTS_THREAD_ID"),
+        "promo_activations": (
+            "LOG_PROMO_ACTIVATIONS_CHAT_ID",
+            "LOG_PROMO_ACTIVATIONS_THREAD_ID",
+        ),
+        "trial_activations": (
+            "LOG_TRIAL_ACTIVATIONS_CHAT_ID",
+            "LOG_TRIAL_ACTIVATIONS_THREAD_ID",
+        ),
+        "suspicious_activity": (
+            "LOG_SUSPICIOUS_ACTIVITY_CHAT_ID",
+            "LOG_SUSPICIOUS_ACTIVITY_THREAD_ID",
+        ),
+    }
     
     def __init__(self, bot: Bot, settings: Settings, i18n: Optional[JsonI18n] = None):
         self.bot = bot
         self.settings = settings
         self.i18n = i18n
+
+    def _resolve_default_destination(self) -> Tuple[Optional[int], Optional[int]]:
+        default_chat_id = self.settings.LOG_DEFAULT_CHAT_ID
+        default_thread_id = self.settings.LOG_DEFAULT_THREAD_ID
+        return default_chat_id, default_thread_id
+
+    def _resolve_log_destination(
+        self,
+        event_type: Optional[str] = None,
+        thread_id_override: Optional[int] = None,
+    ) -> Tuple[Optional[int], Optional[int]]:
+        chat_id, thread_id = self._resolve_default_destination()
+
+        route_fields = self._EVENT_ROUTE_FIELDS.get(event_type or "")
+        if route_fields:
+            chat_field, thread_field = route_fields
+            event_chat_id = getattr(self.settings, chat_field, None)
+            event_thread_id = getattr(self.settings, thread_field, None)
+            if event_chat_id is not None:
+                chat_id = event_chat_id
+            if event_thread_id is not None:
+                thread_id = event_thread_id
+
+        if thread_id_override is not None:
+            thread_id = thread_id_override
+
+        return chat_id, thread_id
 
     @staticmethod
     def _format_user_display(
@@ -75,19 +118,27 @@ class NotificationService:
         message: str,
         thread_id: Optional[int] = None,
         reply_markup: Optional[InlineKeyboardMarkup] = None,
+        event_type: Optional[str] = None,
     ):
         """Send message to configured log channel/group using message queue"""
-        if not self.settings.LOG_CHAT_ID:
+        resolved_chat_id, final_thread_id = self._resolve_log_destination(
+            event_type=event_type,
+            thread_id_override=thread_id,
+        )
+        if resolved_chat_id is None:
+            logging.warning(
+                "Skipping %s notification: log destination chat is not configured.",
+                event_type or "default log",
+            )
             return
         
         queue_manager = get_queue_manager()
         if not queue_manager:
             logging.warning("Message queue manager not available, falling back to direct send")
-            final_thread_id = thread_id or self.settings.LOG_THREAD_ID
 
             def _build_kwargs(markup: Optional[InlineKeyboardMarkup]) -> Dict[str, Any]:
                 kwargs: Dict[str, Any] = {
-                    "chat_id": self.settings.LOG_CHAT_ID,
+                    "chat_id": resolved_chat_id,
                     "text": message,
                     "parse_mode": "HTML",
                     "disable_web_page_preview": True,
@@ -106,7 +157,7 @@ class NotificationService:
                     logging.warning(
                         "Telegram rejected profile buttons for log chat %s: %s. "
                         "Retrying without tg:// links.",
-                        self.settings.LOG_CHAT_ID,
+                        resolved_chat_id,
                         getattr(exc, "message", "") or str(exc),
                     )
                     try:
@@ -114,20 +165,17 @@ class NotificationService:
                     except Exception as retry_exc:
                         logging.error(
                             "Failed to send notification without profile buttons to log "
-                            f"channel {self.settings.LOG_CHAT_ID}: {retry_exc}"
+                            f"channel {resolved_chat_id}: {retry_exc}"
                         )
                     return
                 logging.error(
-                    f"Failed to send notification to log channel {self.settings.LOG_CHAT_ID}: {exc}"
+                    f"Failed to send notification to log channel {resolved_chat_id}: {exc}"
                 )
             except Exception as e:
-                logging.error(f"Failed to send notification to log channel {self.settings.LOG_CHAT_ID}: {e}")
+                logging.error(f"Failed to send notification to log channel {resolved_chat_id}: {e}")
             return
         
         try:
-            # Use thread_id if provided, otherwise use from settings
-            final_thread_id = thread_id or self.settings.LOG_THREAD_ID
-            
             kwargs = {
                 "text": message,
                 "parse_mode": "HTML",
@@ -141,10 +189,10 @@ class NotificationService:
                 kwargs["message_thread_id"] = final_thread_id
             
             # Queue message for sending (groups are rate limited to 15/minute)
-            await queue_manager.send_message(self.settings.LOG_CHAT_ID, **kwargs)
+            await queue_manager.send_message(resolved_chat_id, **kwargs)
             
         except Exception as e:
-            logging.error(f"Failed to queue notification to log channel {self.settings.LOG_CHAT_ID}: {e}")
+            logging.error(f"Failed to queue notification to log channel {resolved_chat_id}: {e}")
     
     async def _send_to_admins(self, message: str):
         """Send message to all admin users using message queue"""
@@ -211,7 +259,11 @@ class NotificationService:
 
         # Send to log channel
         profile_keyboard = self._build_profile_keyboard(_, user_id, partner_by_id)
-        await self._send_to_log_channel(message, reply_markup=profile_keyboard)
+        await self._send_to_log_channel(
+            message,
+            reply_markup=profile_keyboard,
+            event_type="new_users",
+        )
     
     async def notify_payment_received(self, user_id: int, amount: float, currency: str,
                                     months: int, payment_provider: str, 
@@ -264,7 +316,11 @@ class NotificationService:
         
         # Send to log channel
         profile_keyboard = self._build_profile_keyboard(_, user_id)
-        await self._send_to_log_channel(message, reply_markup=profile_keyboard)
+        await self._send_to_log_channel(
+            message,
+            reply_markup=profile_keyboard,
+            event_type="payments",
+        )
     
     async def notify_promo_activation(self, user_id: int, promo_code: str, bonus_days: int,
                                     username: Optional[str] = None):
@@ -290,7 +346,11 @@ class NotificationService:
 
         # Send to log channel
         profile_keyboard = self._build_profile_keyboard(_, user_id)
-        await self._send_to_log_channel(message, reply_markup=profile_keyboard)
+        await self._send_to_log_channel(
+            message,
+            reply_markup=profile_keyboard,
+            event_type="promo_activations",
+        )
 
     async def notify_discount_promo_activation(self, user_id: int, promo_code: str, discount_percentage: int,
                                               username: Optional[str] = None):
@@ -316,7 +376,11 @@ class NotificationService:
 
         # Send to log channel
         profile_keyboard = self._build_profile_keyboard(_, user_id)
-        await self._send_to_log_channel(message, reply_markup=profile_keyboard)
+        await self._send_to_log_channel(
+            message,
+            reply_markup=profile_keyboard,
+            event_type="promo_activations",
+        )
     
     async def notify_trial_activation(self, user_id: int, end_date: datetime,
                                     username: Optional[str] = None):
@@ -341,7 +405,11 @@ class NotificationService:
         
         # Send to log channel
         profile_keyboard = self._build_profile_keyboard(_, user_id)
-        await self._send_to_log_channel(message, reply_markup=profile_keyboard)
+        await self._send_to_log_channel(
+            message,
+            reply_markup=profile_keyboard,
+            event_type="trial_activations",
+        )
 
     async def notify_panel_sync(self, status: str, details: str, 
                                users_processed: int, subs_synced: int,
@@ -399,14 +467,19 @@ class NotificationService:
 
         # Send to log channel
         profile_keyboard = self._build_profile_keyboard(_, user_id)
-        await self._send_to_log_channel(message, reply_markup=profile_keyboard)
+        await self._send_to_log_channel(
+            message,
+            reply_markup=profile_keyboard,
+            event_type="suspicious_activity",
+        )
     
     async def send_custom_notification(self, message: str, to_admins: bool = False, 
-                                     to_log_channel: bool = True, thread_id: Optional[int] = None):
+                                     to_log_channel: bool = True, thread_id: Optional[int] = None,
+                                     event_type: Optional[str] = None):
         """Send custom notification message"""
         if to_log_channel:
-            await self._send_to_log_channel(message, thread_id)
+            await self._send_to_log_channel(message, thread_id, event_type=event_type)
         if to_admins:
             await self._send_to_admins(message)
 
-# Removed legacy helper functions that duplicated NotificationService API
+# Removed helper functions that duplicated NotificationService API
