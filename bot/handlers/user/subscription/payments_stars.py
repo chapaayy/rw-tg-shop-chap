@@ -92,6 +92,38 @@ async def pay_stars_callback_handler(
         else get_text("payment_description_subscription", months=int(months))
     )
 
+    info_key = (
+        "payment_invoice_sent_message_traffic"
+        if sale_mode == "traffic"
+        else "payment_invoice_sent_message"
+    )
+    info_text = get_text(
+        info_key,
+        months=int(months),
+        traffic_gb=human_value,
+    )
+    info_markup = _build_stars_info_keyboard(get_text, human_value)
+    try:
+        await callback.message.edit_text(
+            info_text,
+            reply_markup=info_markup,
+        )
+    except Exception as e_edit:
+        logging.warning(
+            "Stars payment: failed to edit payment methods message (%s)",
+            e_edit,
+        )
+        try:
+            await callback.message.answer(
+                info_text,
+                reply_markup=info_markup,
+            )
+        except Exception as e_send:
+            logging.warning(
+                "Stars payment: failed to send fallback info message (%s)",
+                e_send,
+            )
+
     payment_db_id = await stars_service.create_invoice(
         session=session,
         user_id=user_id,
@@ -104,37 +136,6 @@ async def pay_stars_callback_handler(
     )
 
     if payment_db_id:
-        info_key = (
-            "payment_invoice_sent_message_traffic"
-            if sale_mode == "traffic"
-            else "payment_invoice_sent_message"
-        )
-        info_text = get_text(
-            info_key,
-            months=int(months),
-            traffic_gb=human_value,
-        )
-        info_markup = _build_stars_info_keyboard(get_text, human_value)
-        try:
-            await callback.message.edit_text(
-                info_text,
-                reply_markup=info_markup,
-            )
-        except Exception as e_edit:
-            logging.warning(
-                "Stars payment: failed to edit payment methods message (%s)",
-                e_edit,
-            )
-            try:
-                await callback.message.answer(
-                    info_text,
-                    reply_markup=info_markup,
-                )
-            except Exception as e_send:
-                logging.warning(
-                    "Stars payment: failed to send fallback info message (%s)",
-                    e_send,
-                )
         try:
             await callback.answer()
         except Exception as exc:
