@@ -42,13 +42,15 @@ async def resolve_fiat_offer_price_for_user(
     return resolved_price
 
 
-@router.callback_query(F.data.startswith("subscribe_period:"))
-async def select_subscription_period_callback_handler(
+async def render_payment_methods_for_period(
     callback: types.CallbackQuery,
     settings: Settings,
     i18n_data: dict,
     session: AsyncSession,
-    promo_code_service=None,  # Injected from dispatcher
+    *,
+    months: float,
+    promo_code_service=None,
+    sale_mode_override: Optional[str] = None,
 ):
     current_lang = i18n_data.get("current_language", settings.DEFAULT_LANGUAGE)
     i18n: Optional[JsonI18n] = i18n_data.get("i18n_instance")
@@ -63,16 +65,10 @@ async def select_subscription_period_callback_handler(
 
     traffic_packages = getattr(settings, "traffic_packages", {}) or {}
     stars_traffic_packages = getattr(settings, "stars_traffic_packages", {}) or {}
-    traffic_mode = bool(getattr(settings, "traffic_sale_mode", False) or stars_traffic_packages)
-    try:
-        months = float(callback.data.split(":")[-1])
-    except (ValueError, IndexError):
-        logging.error(f"Invalid subscription period in callback_data: {callback.data}")
-        try:
-            await callback.answer(get_text("error_try_again"), show_alert=True)
-        except Exception as exc:
-            logging.debug("Suppressed exception in bot/handlers/user/subscription/payments_subscription.py: %s", exc)
-        return
+    if sale_mode_override is None:
+        traffic_mode = bool(getattr(settings, "traffic_sale_mode", False) or stars_traffic_packages)
+    else:
+        traffic_mode = sale_mode_override == "traffic"
 
     price_source = traffic_packages if traffic_mode else settings.subscription_options
     stars_price_source = stars_traffic_packages if traffic_mode else settings.stars_subscription_options
@@ -81,7 +77,6 @@ async def select_subscription_period_callback_handler(
     stars_price = stars_price_source.get(months)
     currency_symbol_val = "RUB"
 
-    # Check for active discount and apply if exists
     discount_text = ""
     if promo_code_service and (price_rub is not None or stars_price is not None):
         active_discount_info = await promo_code_service.get_user_active_discount(
@@ -120,7 +115,7 @@ async def select_subscription_period_callback_handler(
                         original_price=original_stars_price,
                         discounted_price=discounted_stars_price,
                         discount_amount=discount_amt,
-                        currency_symbol="⭐",
+                        currency_symbol="XTR",
                     )
 
     if price_rub is None:
@@ -145,10 +140,12 @@ async def select_subscription_period_callback_handler(
                     logging.debug("Suppressed exception in bot/handlers/user/subscription/payments_subscription.py: %s", exc)
                 return
             price_rub = 0.0
-            currency_symbol_val = "⭐"
+            currency_symbol_val = "XTR"
         else:
             logging.error(
-                f"Price not found for option {months} using {'traffic_packages' if traffic_mode else 'subscription_options'}."
+                "Price not found for option %s using %s.",
+                months,
+                "traffic_packages" if traffic_mode else "subscription_options",
             )
             try:
                 await callback.answer(get_text("error_try_again"), show_alert=True)
@@ -175,10 +172,43 @@ async def select_subscription_period_callback_handler(
         await callback.message.edit_text(text_content, reply_markup=reply_markup)
     except Exception as e_edit:
         logging.warning(
-            f"Edit message for payment method selection failed: {e_edit}. Sending new one."
+            "Edit message for payment method selection failed: %s. Sending new one.",
+            e_edit,
         )
         await callback.message.answer(text_content, reply_markup=reply_markup)
     try:
         await callback.answer()
     except Exception as exc:
         logging.debug("Suppressed exception in bot/handlers/user/subscription/payments_subscription.py: %s", exc)
+
+
+@router.callback_query(F.data.startswith("subscribe_period:"))
+async def select_subscription_period_callback_handler(
+    callback: types.CallbackQuery,
+    settings: Settings,
+    i18n_data: dict,
+    session: AsyncSession,
+    promo_code_service=None,  # Injected from dispatcher
+):
+    current_lang = i18n_data.get("current_language", settings.DEFAULT_LANGUAGE)
+    i18n: Optional[JsonI18n] = i18n_data.get("i18n_instance")
+    get_text = lambda key, **kwargs: i18n.gettext(current_lang, key, **kwargs) if i18n else key
+
+    try:
+        months = float(callback.data.split(":")[-1])
+    except (ValueError, IndexError):
+        logging.error("Invalid subscription period in callback_data: %s", callback.data)
+        try:
+            await callback.answer(get_text("error_try_again"), show_alert=True)
+        except Exception as exc:
+            logging.debug("Suppressed exception in bot/handlers/user/subscription/payments_subscription.py: %s", exc)
+        return
+
+    await render_payment_methods_for_period(
+        callback,
+        settings,
+        i18n_data,
+        session,
+        months=months,
+        promo_code_service=promo_code_service,
+    )
