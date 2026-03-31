@@ -11,8 +11,6 @@
       - remnawave-network
     environment:
       - TZ=UTC
-    volumes:
-      - ./locales:/app/locales
     restart: unless-stopped
     depends_on:
       - rw-tg-shop-chap-db

@@ -8,8 +8,6 @@
       - .env
     networks:
       - remnawave-network
-    volumes:
-      - ./locales:/app/locales
     restart: unless-stopped
     depends_on:
       rw-tg-shop-chap-db:
