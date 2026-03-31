@@ -143,7 +143,7 @@ async def admin_panel_actions_callback_handler(
             callback, i18n_data, settings, session)
     elif action == "partners":
         from . import partners as admin_partners_handlers
-        await admin_partners_handlers.show_partners_menu(
+        await admin_partners_handlers.show_partner_program_menu(
             callback, settings, i18n_data, session
         )
     elif action == "main":

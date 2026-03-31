@@ -28,12 +28,18 @@ def _translator(i18n_data: dict, settings: Settings) -> Tuple[Optional[JsonI18n]
 
 def _extract_partner_and_page(callback_data: Optional[str], expected_action: str) -> Tuple[int, int]:
     parts = (callback_data or "").split(":")
-    if len(parts) != 4:
+    if len(parts) == 3:
+        scope, action, raw_partner_id = parts
+        raw_page = "0"
+    elif len(parts) == 4:
+        scope, action, raw_partner_id, raw_page = parts
+    else:
         raise ValueError("Invalid callback format")
-    scope, action, raw_partner_id, raw_page = parts
     if scope != "admin_partners" or action != expected_action:
         raise ValueError("Invalid callback payload")
-    return int(raw_partner_id), int(raw_page)
+    partner_user_id = int(raw_partner_id)
+    back_page = int(raw_page) if raw_page else 0
+    return partner_user_id, max(0, back_page)
 
 
 def _fmt_username(user) -> str:
@@ -55,6 +61,29 @@ def _fmt_referral_user(row: dict) -> str:
     return f"ID {invited_user_id}"
 
 
+def _build_partner_program_menu_keyboard(_) -> types.InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=_("admin_partners_list_button"),
+            callback_data="admin_partners:open_list",
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=_("admin_partners_settings_button"),
+            callback_data="admin_partners:open_settings",
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=_("back_to_admin_panel_button"),
+            callback_data="admin_action:main",
+        )
+    )
+    return builder.as_markup()
+
+
 def _build_partners_list_keyboard(
     _,
     *,
@@ -65,7 +94,7 @@ def _build_partners_list_keyboard(
     builder = InlineKeyboardBuilder()
 
     for account, user in rows:
-        status_icon = "✅" if account.is_enabled else "⛔"
+        status_icon = "\u2705" if account.is_enabled else "\u26d4"
         percent_text = (
             f"{float(account.personal_percent):.2f}%"
             if account.personal_percent is not None
@@ -73,7 +102,7 @@ def _build_partners_list_keyboard(
         )
         builder.row(
             InlineKeyboardButton(
-                text=f"{status_icon} {_fmt_username(user)} • {percent_text}",
+                text=f"{status_icon} {_fmt_username(user)} \u2022 {percent_text}",
                 callback_data=f"admin_partners:card:{user.user_id}:{current_page}",
             )
         )
@@ -82,7 +111,7 @@ def _build_partners_list_keyboard(
     if current_page > 0:
         nav.append(
             InlineKeyboardButton(
-                text="⬅️",
+                text="\u2b05\ufe0f",
                 callback_data=f"admin_partners:page:{current_page - 1}",
             )
         )
@@ -95,7 +124,7 @@ def _build_partners_list_keyboard(
     if current_page < total_pages - 1:
         nav.append(
             InlineKeyboardButton(
-                text="➡️",
+                text="\u27a1\ufe0f",
                 callback_data=f"admin_partners:page:{current_page + 1}",
             )
         )
@@ -103,18 +132,11 @@ def _build_partners_list_keyboard(
 
     builder.row(
         InlineKeyboardButton(
-            text=_("admin_partners_settings_button"),
-            callback_data="admin_partners:settings",
-        )
-    )
-    builder.row(
-        InlineKeyboardButton(
-            text=_("back_to_admin_panel_button"),
-            callback_data="admin_action:main",
+            text=_("admin_partner_back_to_program_menu_button"),
+            callback_data="admin_partners:menu",
         )
     )
     return builder.as_markup()
-
 
 def _build_partner_card_keyboard(
     _,
@@ -197,11 +219,31 @@ def _build_partner_settings_keyboard(_, settings_model) -> types.InlineKeyboardM
     )
     builder.row(
         InlineKeyboardButton(
-            text=_("admin_partner_back_to_list_button"),
-            callback_data="admin_partners:page:0",
+            text=_("admin_partner_back_to_program_menu_button"),
+            callback_data="admin_partners:menu",
         )
     )
     return builder.as_markup()
+
+
+async def _render_partner_program_menu(
+    callback: types.CallbackQuery,
+    *,
+    settings: Settings,
+    i18n_data: dict,
+) -> None:
+    i18n, lang = _translator(i18n_data, settings)
+    if not i18n or not callback.message:
+        await callback.answer("Language error", show_alert=True)
+        return
+    _ = lambda key, **kwargs: i18n.gettext(lang, key, **kwargs)
+
+    await callback.message.edit_text(
+        _("admin_partner_program_menu_title"),
+        parse_mode="HTML",
+        reply_markup=_build_partner_program_menu_keyboard(_),
+    )
+    await callback.answer()
 
 
 async def _render_partners_menu(
@@ -324,7 +366,19 @@ async def _show_partner_card(
     await callback.answer()
 
 
-@router.callback_query(F.data == "admin_action:partners")
+@router.callback_query(F.data == "admin_partners:menu")
+async def show_partner_program_menu(
+    callback: types.CallbackQuery,
+    settings: Settings,
+    i18n_data: dict,
+    session: AsyncSession,
+):
+    await _render_partner_program_menu(
+        callback, settings=settings, i18n_data=i18n_data
+    )
+
+
+@router.callback_query(F.data == "admin_partners:open_list")
 async def show_partners_menu(
     callback: types.CallbackQuery,
     settings: Settings,
@@ -334,6 +388,16 @@ async def show_partners_menu(
     await _render_partners_menu(
         callback, settings=settings, i18n_data=i18n_data, session=session, page=0
     )
+
+
+@router.callback_query(F.data == "admin_partners:open_settings")
+async def open_partner_settings_callback(
+    callback: types.CallbackQuery,
+    settings: Settings,
+    i18n_data: dict,
+    session: AsyncSession,
+):
+    await partner_settings_menu_callback(callback, settings, i18n_data, session)
 
 
 @router.callback_query(F.data.startswith("admin_partners:page:"))
@@ -811,3 +875,4 @@ async def partner_settings_min_payment_message(
 @router.callback_query(F.data == "admin_partners:noop")
 async def partner_noop_callback(callback: types.CallbackQuery):
     await callback.answer()
+

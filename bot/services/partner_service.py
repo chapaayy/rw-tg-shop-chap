@@ -62,8 +62,11 @@ class PartnerService:
             return float(account.personal_percent)
         return float(settings_model.default_percent)
 
-    async def build_partner_link(self, bot_username: str, slug: str) -> str:
-        return f"https://t.me/{bot_username}?start=p_{slug}"
+    async def build_partner_link(
+        self, bot_username: str, slug: str, *, use_partner_prefix: bool
+    ) -> str:
+        payload = f"p_{slug}" if use_partner_prefix else slug
+        return f"https://t.me/{bot_username}?start={payload}"
 
     async def get_user_partner_dashboard(
         self,
@@ -81,18 +84,20 @@ class PartnerService:
         )
         effective_percent = await self.get_effective_percent(session, user_id)
 
-        default_link = await self.build_partner_link(bot_username, account.default_slug)
+        default_link = await self.build_partner_link(
+            bot_username, account.default_slug, use_partner_prefix=True
+        )
         custom_link = (
-            await self.build_partner_link(bot_username, account.custom_slug)
+            await self.build_partner_link(
+                bot_username, account.custom_slug, use_partner_prefix=False
+            )
             if account.custom_slug
             else None
         )
-        active_link = await self.build_partner_link(bot_username, self.get_active_slug(account))
+        active_link = custom_link or default_link
 
         return {
             "account": account,
-            "default_link": default_link,
-            "custom_link": custom_link,
             "active_link": active_link,
             "effective_percent": effective_percent,
             "invited_count": counts["invited_count"],
@@ -100,6 +105,34 @@ class PartnerService:
             "turnover": money["turnover"],
             "income": money["income"],
             "referrals": referrals,
+        }
+
+    async def get_user_referrals_page(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: int,
+        page: int,
+        page_size: int = 10,
+    ) -> Dict[str, Any]:
+        safe_page = max(0, page)
+        safe_page_size = max(1, page_size)
+        total = await partner_dal.get_partner_referrals_total_count(session, user_id)
+        total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
+        if safe_page >= total_pages:
+            safe_page = total_pages - 1
+        offset = safe_page * safe_page_size
+        rows = await partner_dal.get_partner_referrals_with_income(
+            session,
+            user_id,
+            limit=safe_page_size,
+            offset=offset,
+        )
+        return {
+            "rows": rows,
+            "total": total,
+            "current_page": safe_page,
+            "total_pages": total_pages,
         }
 
     async def validate_custom_slug(
@@ -115,6 +148,8 @@ class PartnerService:
         if normalized in RESERVED_SLUGS:
             return False, "partners_slug_reserved"
         if normalized.startswith("p_"):
+            return False, "partners_slug_reserved"
+        if normalized.startswith("promo_"):
             return False, "partners_slug_reserved"
         if normalized == partner_dal.build_default_slug(user_id):
             return False, "partners_slug_is_default"

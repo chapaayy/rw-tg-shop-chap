@@ -1,4 +1,4 @@
-﻿from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from aiogram.types import InlineKeyboardMarkup, WebAppInfo
 from typing import Optional, List, Any
 import math
@@ -26,7 +26,7 @@ def get_admin_panel_keyboard(i18n_instance, lang: str,
                    callback_data="admin_section:promo_marketing")
     
     # Partners
-    builder.button(text=_(key="admin_partners_section"),
+    builder.button(text=_(key="admin_partner_program_section"),
                    callback_data="admin_action:partners")
 
     # System functions

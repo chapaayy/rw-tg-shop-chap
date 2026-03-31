@@ -294,17 +294,14 @@ def get_yk_saved_cards_keyboard(
 
 def get_partner_menu_keyboard(
         lang: str,
-        i18n_instance,
-        *,
-        has_custom_slug: bool = False) -> InlineKeyboardMarkup:
+        i18n_instance) -> InlineKeyboardMarkup:
     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
     builder = InlineKeyboardBuilder()
     builder.button(text=_(key="partners_change_slug_button"),
                    callback_data="partners_action:change_slug")
-    if has_custom_slug:
-        builder.button(text=_(key="partners_reset_slug_button"),
-                       callback_data="partners_action:reset_slug")
-    builder.button(text=_(key="back_to_main_menu_button"),
+    builder.button(text=_(key="partners_referrals_button"),
+                   callback_data="partners_action:referrals:0")
+    builder.button(text=_(key="partners_back_button"),
                    callback_data="main_action:back_to_main")
     builder.adjust(1, 1, 1)
     return builder.as_markup()

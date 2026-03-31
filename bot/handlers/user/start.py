@@ -339,6 +339,21 @@ async def start_command_handler(message: types.Message,
     elif partner_match:
         partner_slug_to_bind = partner_match.group(1).strip().lower()
         logging.info(f"User {user_id} started with partner slug: {partner_slug_to_bind}")
+    else:
+        parts = (message.text or "").split(maxsplit=1)
+        raw_start_payload = parts[1].strip().lower() if len(parts) > 1 else ""
+        if (
+            raw_start_payload
+            and not raw_start_payload.startswith("promo_")
+            and not raw_start_payload.startswith("p_")
+            and re.fullmatch(r"[a-z0-9_\-]{4,32}", raw_start_payload)
+        ):
+            partner_slug_to_bind = raw_start_payload
+            logging.info(
+                "User %s started with custom partner slug: %s",
+                user_id,
+                partner_slug_to_bind,
+            )
 
     sanitized_username = sanitize_username(user.username)
     sanitized_first_name = sanitize_display_name(user.first_name)

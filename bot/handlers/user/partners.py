@@ -3,6 +3,7 @@ from typing import Optional, Union
 
 from aiogram import F, Router, types, Bot
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.middlewares.i18n import JsonI18n
@@ -16,6 +17,7 @@ from bot.keyboards.inline.user_keyboards import (
 from config.settings import Settings
 
 router = Router(name="user_partners_router")
+REFERRALS_PAGE_SIZE = 10
 
 
 def _format_referral_name(row: dict, fallback_id: int) -> str:
@@ -31,44 +33,122 @@ def _format_referral_name(row: dict, fallback_id: int) -> str:
 
 
 def _compose_dashboard_text(_: callable, dashboard: dict) -> str:
-    account = dashboard["account"]
-    lines = [
-        _(
-            "partners_dashboard_header",
-            active_link=dashboard["active_link"],
-            default_link=dashboard["default_link"],
-            custom_link=dashboard["custom_link"] or _("partners_custom_link_not_set"),
-            active_slug=account.custom_slug or account.default_slug,
-            default_slug=account.default_slug,
-            custom_slug=account.custom_slug or _("partners_custom_link_not_set"),
-            percent=f"{dashboard['effective_percent']:.2f}",
-            invited_count=dashboard["invited_count"],
-            paid_count=dashboard["paid_count"],
-            turnover=f"{dashboard['turnover']:.2f}",
-            income=f"{dashboard['income']:.2f}",
-        )
-    ]
+    return _(
+        "partners_dashboard_header",
+        active_link=dashboard["active_link"],
+        percent=f"{dashboard['effective_percent']:.2f}",
+        invited_count=dashboard["invited_count"],
+        paid_count=dashboard["paid_count"],
+        turnover=f"{dashboard['turnover']:.2f}",
+        income=f"{dashboard['income']:.2f}",
+    )
 
-    rows = dashboard.get("referrals") or []
-    if rows:
-        lines.append(_("partners_referrals_list_header"))
-        for row in rows[:20]:
-            invited_user_id = int(row.get("invited_user_id"))
-            user_label = _format_referral_name(row, invited_user_id)
+
+def _build_referrals_keyboard(
+    _,
+    *,
+    current_page: int,
+    total_pages: int,
+) -> types.InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    nav_buttons = []
+    if current_page > 0:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text=_("partners_prev_page_button"),
+                callback_data=f"partners_action:referrals:{current_page - 1}",
+            )
+        )
+    nav_buttons.append(
+        InlineKeyboardButton(
+            text=f"{current_page + 1}/{total_pages}",
+            callback_data="partners_action:referrals_noop",
+        )
+    )
+    if current_page < total_pages - 1:
+        nav_buttons.append(
+            InlineKeyboardButton(
+                text=_("partners_next_page_button"),
+                callback_data=f"partners_action:referrals:{current_page + 1}",
+            )
+        )
+    builder.row(*nav_buttons)
+    builder.row(
+        InlineKeyboardButton(
+            text=_("partners_back_button"),
+            callback_data="partners_action:open",
+        )
+    )
+    return builder.as_markup()
+
+
+async def _show_referrals_page(
+    callback: types.CallbackQuery,
+    *,
+    page: int,
+    settings: Settings,
+    i18n_data: dict,
+    partner_service: PartnerService,
+    session: AsyncSession,
+) -> None:
+    i18n: Optional[JsonI18n] = i18n_data.get("i18n_instance")
+    current_lang = i18n_data.get("current_language", settings.DEFAULT_LANGUAGE)
+    if not i18n or not callback.message:
+        await callback.answer("Language error", show_alert=True)
+        return
+    _ = lambda key, **kwargs: i18n.gettext(current_lang, key, **kwargs)
+
+    program_settings = await partner_service.get_program_settings(session)
+    if not program_settings.is_enabled:
+        await callback.message.edit_text(
+            _("partners_program_disabled"),
+            reply_markup=get_back_to_main_menu_markup(current_lang, i18n),
+        )
+        await callback.answer()
+        return
+
+    data = await partner_service.get_user_referrals_page(
+        session,
+        user_id=callback.from_user.id,
+        page=page,
+        page_size=REFERRALS_PAGE_SIZE,
+    )
+    rows = data["rows"]
+    if not rows:
+        text = _("partners_referrals_list_empty")
+    else:
+        lines = [
+            _(
+                "partners_referrals_page_header",
+                current_page=data["current_page"] + 1,
+                total_pages=data["total_pages"],
+            )
+        ]
+        for row in rows:
+            invited_user_id = int(row["invited_user_id"])
             lines.append(
                 _(
                     "partners_referral_list_item",
-                    user=user_label,
+                    user=_format_referral_name(row, invited_user_id),
                     invited_user_id=invited_user_id,
                     payments_count=int(row.get("payments_count") or 0),
                     turnover=f"{float(row.get('turnover') or 0.0):.2f}",
                     income=f"{float(row.get('income') or 0.0):.2f}",
                 )
             )
-    else:
-        lines.append(_("partners_referrals_list_empty"))
+        text = "\n".join(lines)
 
-    return "\n".join(lines)
+    markup = _build_referrals_keyboard(
+        _,
+        current_page=data["current_page"],
+        total_pages=data["total_pages"],
+    )
+    await callback.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=markup,
+    )
+    await callback.answer()
 
 
 async def show_partner_dashboard(
@@ -132,10 +212,13 @@ async def show_partner_dashboard(
         return
 
     dashboard = await partner_service.get_user_partner_dashboard(
-        session, user_id=event.from_user.id, bot_username=bot_username
+        session,
+        user_id=event.from_user.id,
+        bot_username=bot_username,
+        referrals_limit=0,
     )
     text = _compose_dashboard_text(_, dashboard)
-    keyboard = get_partner_menu_keyboard(current_lang, i18n, has_custom_slug=bool(dashboard["account"].custom_slug))
+    keyboard = get_partner_menu_keyboard(current_lang, i18n)
 
     if isinstance(event, types.CallbackQuery):
         try:
@@ -196,30 +279,32 @@ async def change_slug_prompt_callback(
     await callback.answer()
 
 
-@router.callback_query(F.data == "partners_action:reset_slug")
-async def reset_slug_callback(
+@router.callback_query(F.data.startswith("partners_action:referrals:"))
+async def referrals_page_callback(
     callback: types.CallbackQuery,
     settings: Settings,
     i18n_data: dict,
     partner_service: PartnerService,
-    bot: Bot,
     session: AsyncSession,
 ):
-    current_lang = i18n_data.get("current_language", settings.DEFAULT_LANGUAGE)
-    i18n: Optional[JsonI18n] = i18n_data.get("i18n_instance")
-    if not i18n:
-        await callback.answer("Language error", show_alert=True)
+    try:
+        page = int((callback.data or "").split(":")[2])
+    except (IndexError, ValueError):
+        await callback.answer("Invalid page", show_alert=True)
         return
-    _ = lambda key, **kwargs: i18n.gettext(current_lang, key, **kwargs)
+    await _show_referrals_page(
+        callback,
+        page=page,
+        settings=settings,
+        i18n_data=i18n_data,
+        partner_service=partner_service,
+        session=session,
+    )
 
-    program_settings = await partner_service.get_program_settings(session)
-    if not program_settings.is_enabled:
-        await callback.answer(_("partners_program_disabled"), show_alert=True)
-        return
 
-    await partner_service.clear_custom_slug(session, user_id=callback.from_user.id)
-    await callback.answer(_("partners_custom_slug_reset_alert"), show_alert=True)
-    await show_partner_dashboard(callback, settings, i18n_data, partner_service, bot, session)
+@router.callback_query(F.data == "partners_action:referrals_noop")
+async def referrals_noop_callback(callback: types.CallbackQuery):
+    await callback.answer()
 
 
 @router.message(UserPartnerStates.waiting_for_custom_slug, F.text)

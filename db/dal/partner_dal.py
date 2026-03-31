@@ -204,7 +204,11 @@ async def get_partner_money_stats(session: AsyncSession, partner_user_id: int) -
 
 
 async def get_partner_referrals_with_income(
-    session: AsyncSession, partner_user_id: int, *, limit: int = 30
+    session: AsyncSession,
+    partner_user_id: int,
+    *,
+    limit: int = 30,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     paid_subq = (
         select(
@@ -236,6 +240,7 @@ async def get_partner_referrals_with_income(
             func.coalesce(paid_subq.c.income, 0.0).desc(),
             PartnerReferral.linked_at.desc(),
         )
+        .offset(max(0, offset))
         .limit(limit)
     )
     result = await session.execute(stmt)
@@ -255,6 +260,16 @@ async def get_partner_referrals_with_income(
             }
         )
     return output
+
+
+async def get_partner_referrals_total_count(
+    session: AsyncSession, partner_user_id: int
+) -> int:
+    stmt = select(func.count(PartnerReferral.referral_id)).where(
+        PartnerReferral.partner_user_id == partner_user_id
+    )
+    result = await session.execute(stmt)
+    return int(result.scalar() or 0)
 
 
 async def get_partner_commission_history(

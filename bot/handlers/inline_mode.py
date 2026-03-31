@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 from aiogram import Router, types, Bot
 from aiogram.types import InlineQuery, InlineQueryResultArticle, InputTextMessageContent
 from typing import List, Optional
@@ -112,7 +112,7 @@ async def create_partner_result(
         
         user_id = inline_query.from_user.id
         dashboard = await partner_service.get_user_partner_dashboard(
-            session, user_id=user_id, bot_username=bot_username, referrals_limit=5
+            session, user_id=user_id, bot_username=bot_username, referrals_limit=0
         )
         partner_link = dashboard["active_link"]
 

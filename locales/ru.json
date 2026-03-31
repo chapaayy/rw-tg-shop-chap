@@ -44,7 +44,6 @@
   "pay_with_cryptopay_button": "💎 CryptoBot",
   "pay_with_stars_button": "🌟 Звезды Telegram",
   "connect_button": "🔗 Подключиться",
-
   "devices_button": "📱 Мои устройства ({current_devices}/{max_devices})",
   "my_devices_details": "📱 <b>Список ваших устройств ({current_devices}/{max_devices})</b>\n\n{devices}\n\nВы можете отключить устройство, выбрав его в списке ниже.\n<blockquote><i>Примечание: Если вы отключили устройство, оно будет автоматически подключено заново при следующем использовании. Перед удалением убедитесь, что вы удалили подписку из приложения.</i></blockquote>",
   "no_devices_details_found_message": "📱 <b>Список ваших устройств</b>\n\nУ вас пока нет устройств.\nВам доступно {max_devices} устройств. Подключить их можно через кнопку \"🔗 Подключиться\" в меню подписки.",
@@ -54,7 +53,6 @@
   "no_devices_found": "Ошибка загрузки списка устройств.",
   "devices_unlimited_label": "Без ограничений",
   "my_devices_feature_disabled": "Раздел \"Мои устройства\" сейчас недоступен.",
-
   "cancel_button": "❌ Отмена",
   "payment_description_subscription": "Оплата подписки на {months} мес.",
   "payment_description_traffic": "Пакет трафика {traffic_gb} ГБ",
@@ -487,10 +485,10 @@
   "partners_program_disabled": "Партнерская программа сейчас отключена.",
   "partners_error_generating_link": "Не удалось сформировать партнерскую ссылку. Попробуйте позже.",
   "partners_custom_link_not_set": "не задана",
-  "partners_dashboard_header": "🤝 <b>Партнерская программа</b>\n\n🔗 <b>Активная ссылка:</b>\n<code>{active_link}</code>\n\n🔹 Дефолтная ссылка:\n<code>{default_link}</code>\n🔹 Кастомная ссылка:\n<code>{custom_link}</code>\n\n⚙️ Активный slug: <code>{active_slug}</code>\n📌 Дефолтный slug: <code>{default_slug}</code>\n🧩 Кастомный slug: <code>{custom_slug}</code>\n\n📊 <b>Статистика</b>\n👥 Приглашено: <b>{invited_count}</b>\n💳 С оплатами: <b>{paid_count}</b>\n💰 Оборот: <b>{turnover} RUB</b>\n💸 Доход: <b>{income} RUB</b>\n📈 Ваш процент: <b>{percent}%</b>",
+  "partners_dashboard_header": "🤝 <b>Партнерская программа</b>\n\n🔗 <b>Активная ссылка:</b>\n<code>{active_link}</code>\n\n📊 <b>Статистика</b>\n👥 Приглашено: <b>{invited_count}</b>\n💳 С оплатами: <b>{paid_count}</b>\n💰 Оборот: <b>{turnover} RUB</b>\n💸 Доход: <b>{income} RUB</b>\n📈 Ваш процент: <b>{percent}%</b>",
   "partners_referrals_list_header": "\n<b>Приглашенные пользователи</b>",
   "partners_referral_list_item": "• {user} (ID: <code>{invited_user_id}</code>) — оплат: <b>{payments_count}</b>, оборот: <b>{turnover} RUB</b>, доход: <b>{income} RUB</b>",
-  "partners_referrals_list_empty": "\nПока нет приглашенных пользователей.",
+  "partners_referrals_list_empty": "У вас пока нет приглашенных пользователей.",
   "partners_change_slug_button": "✏️ Изменить ссылку",
   "partners_reset_slug_button": "♻️ Сбросить на дефолт",
   "partners_enter_new_slug_prompt": "Введите новый slug для партнерской ссылки.\n\nТребования:\n• только латиница, цифры, `_` и `-`\n• длина от 4 до 32 символов",
@@ -506,7 +504,7 @@
   "admin_partners_section": "🤝 Партнеры",
   "admin_partners_header": "🤝 <b>Партнеры</b>\n\nВсего партнеров: <b>{total}</b>\nСтраница: <b>{current_page}/{total_pages}</b>\nПрограмма: <b>{is_enabled}</b>\nДефолтный процент: <b>{default_percent}%</b>\nКомиссия по трафику: <b>{allow_traffic}</b>\nМин. сумма платежа: <b>{min_payment} RUB</b>",
   "admin_partners_empty": "Партнеры не найдены.",
-  "admin_partners_settings_button": "⚙️ Настройки партнерки",
+  "admin_partners_settings_button": "⚙️ Настройки",
   "admin_partner_status_enabled": "включена",
   "admin_partner_status_disabled": "отключена",
   "admin_partner_card_text": "👤 <b>Партнер #{user_id}</b>\nПользователь: {username}\n\n🔹 Дефолтный slug: <code>{default_slug}</code>\n🔹 Кастомный slug: <code>{custom_slug}</code>\n🔹 Активный slug: <code>{active_slug}</code>\n\nСтатус: <b>{is_enabled}</b>\nПерсональный процент: <b>{personal_percent}</b>\nЭффективный процент: <b>{effective_percent}%</b>\n\n👥 Приглашено: <b>{invited_count}</b>\n💳 С оплатами: <b>{paid_count}</b>\n💰 Оборот: <b>{turnover} RUB</b>\n💸 Доход: <b>{income} RUB</b>",
@@ -542,5 +540,14 @@
   "admin_partner_settings_updated": "✅ Настройки обновлены.",
   "admin_user_partner_income_label": "💸 <b>Партнерский доход:</b>",
   "admin_user_partner_turnover_label": "💰 <b>Оборот приглашенных:</b>",
-  "admin_user_stats_partner_label": "Привлечено по партнерской программе"
+  "admin_user_stats_partner_label": "Привлечено по партнерской программе",
+  "partners_referrals_button": "👥 Приглашенные пользователи",
+  "partners_back_button": "⬅️ Назад",
+  "partners_prev_page_button": "⬅️ Предыдущая",
+  "partners_next_page_button": "➡️ Следующая",
+  "partners_referrals_page_header": "👥 <b>Приглашенные пользователи</b>\nСтраница: <b>{current_page}/{total_pages}</b>",
+  "admin_partner_program_section": "🤝 Партнерская программа",
+  "admin_partners_list_button": "🤝 Партнеры",
+  "admin_partner_program_menu_title": "🤝 <b>Партнерская программа</b>\n\nВыберите раздел:",
+  "admin_partner_back_to_program_menu_button": "⬅️ Назад"
 }
