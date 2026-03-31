@@ -279,6 +279,17 @@ async def delete_user_and_relations(session: AsyncSession, user_id: int) -> bool
 
     user_payment_ids_subquery = select(Payment.payment_id).where(Payment.user_id == user_id)
 
+    # Must be removed before deleting payments due to FK partner_commissions.payment_id -> payments.payment_id
+    await session.execute(
+        delete(PartnerCommission).where(
+            or_(
+                PartnerCommission.partner_user_id == user_id,
+                PartnerCommission.invited_user_id == user_id,
+                PartnerCommission.payment_id.in_(user_payment_ids_subquery),
+            )
+        )
+    )
+
     # Keep activations of other users intact if they reference this user's payments
     await session.execute(
         update(PromoCodeActivation)
@@ -299,14 +310,6 @@ async def delete_user_and_relations(session: AsyncSession, user_id: int) -> bool
         delete(UserPaymentMethod).where(UserPaymentMethod.user_id == user_id)
     )
     await session.execute(delete(UserBilling).where(UserBilling.user_id == user_id))
-    await session.execute(
-        delete(PartnerCommission).where(
-            or_(
-                PartnerCommission.partner_user_id == user_id,
-                PartnerCommission.invited_user_id == user_id,
-            )
-        )
-    )
     await session.execute(
         delete(PartnerReferral).where(
             or_(
