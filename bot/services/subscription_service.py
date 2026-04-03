@@ -1,7 +1,7 @@
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 from aiogram import Bot
 from bot.middlewares.i18n import JsonI18n
 
@@ -13,6 +13,9 @@ from db.models import User, Subscription
 from config.settings import Settings
 from .panel_api_service import PanelApiService
 
+if TYPE_CHECKING:
+    from .redis_service import RedisService
+
 
 class SubscriptionService:
 
@@ -22,11 +25,13 @@ class SubscriptionService:
         panel_service: PanelApiService,
         bot: Optional[Bot] = None,
         i18n: Optional[JsonI18n] = None,
+        redis_service: Optional["RedisService"] = None,
     ):
         self.settings = settings
         self.panel_service = panel_service
         self.bot = bot
         self.i18n = i18n
+        self.redis_service = redis_service
 
     async def get_user_language(self, session: AsyncSession, user_id: int) -> str:
         user_record = await user_dal.get_user_by_id(session, user_id)
@@ -722,7 +727,11 @@ class SubscriptionService:
                 from .promo_code_service import PromoCodeService
 
                 promo_code_service = PromoCodeService(
-                    self.settings, self, self.bot, self.i18n
+                    self.settings,
+                    self,
+                    self.bot,
+                    self.i18n,
+                    redis_service=self.redis_service,
                 )
             await promo_code_service.consume_discount(session, user_id, payment_db_id)
         except Exception as e:

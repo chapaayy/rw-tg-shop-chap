@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.settings import Settings
 from db.dal import user_dal, payment_dal
 from bot.services.partner_service import PartnerService
+from bot.services.panel_api_service import PanelApiService
 from bot.middlewares.i18n import JsonI18n
 
 router = Router(name="inline_mode_router")
@@ -17,6 +18,7 @@ async def inline_query_handler(inline_query: InlineQuery,
                                settings: Settings,
                                i18n_data: dict,
                                partner_service: PartnerService,
+                               panel_service: PanelApiService,
                                bot: Bot,
                                session: AsyncSession):
     """Handle inline queries for partner links and admin statistics"""
@@ -67,7 +69,7 @@ async def inline_query_handler(inline_query: InlineQuery,
             )
         ):
             stats_results = await create_admin_stats_results(
-                session, i18n, current_lang, settings
+                session, i18n, current_lang, settings, panel_service
             )
             results.extend(stats_results)
         
@@ -142,7 +144,13 @@ async def create_partner_result(
         return None
 
 
-async def create_admin_stats_results(session: AsyncSession, i18n_instance, lang: str, settings: Settings) -> List[InlineQueryResultArticle]:
+async def create_admin_stats_results(
+    session: AsyncSession,
+    i18n_instance,
+    lang: str,
+    settings: Settings,
+    panel_service: PanelApiService,
+) -> List[InlineQueryResultArticle]:
     """Create admin statistics results for inline query"""
     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
     results = []
@@ -159,7 +167,13 @@ async def create_admin_stats_results(session: AsyncSession, i18n_instance, lang:
             results.append(financial_stats_result)
         
         # Quick system stats
-        system_stats_result = await create_system_stats_result(session, i18n_instance, lang, settings)
+        system_stats_result = await create_system_stats_result(
+            session,
+            i18n_instance,
+            lang,
+            settings,
+            panel_service,
+        )
         if system_stats_result:
             results.append(system_stats_result)
             
@@ -248,78 +262,84 @@ async def create_financial_stats_result(session: AsyncSession, i18n_instance, la
         return None
 
 
-async def create_system_stats_result(session: AsyncSession, i18n_instance, lang: str, settings: Settings) -> Optional[InlineQueryResultArticle]:
+async def create_system_stats_result(
+    session: AsyncSession,
+    i18n_instance,
+    lang: str,
+    settings: Settings,
+    panel_service: PanelApiService,
+) -> Optional[InlineQueryResultArticle]:
     """Create panel statistics result with system/nodes/bandwidth info"""
     _ = lambda key, **kwargs: i18n_instance.gettext(lang, key, **kwargs)
     
     try:
-        from bot.services.panel_api_service import PanelApiService
-        
-        # Get panel stats similar to main statistics
-        async with PanelApiService(settings) as panel_service:
-            system_stats = await panel_service.get_system_stats()
-            bandwidth_stats = await panel_service.get_bandwidth_stats()
-            nodes_stats = await panel_service.get_nodes_statistics()
-            
-            if system_stats:
-                users = system_stats.get('users', {})
-                status_counts = users.get('statusCounts', {})
-                online_stats = system_stats.get('onlineStats', {})
-                
-                active_users = status_counts.get('ACTIVE', 0)
-                disabled_users = status_counts.get('DISABLED', 0) 
-                expired_users = status_counts.get('EXPIRED', 0)
-                limited_users = status_counts.get('LIMITED', 0)
-                total_users = users.get('totalUsers', 0)
-                online_now = online_stats.get('onlineNow', 0)
-                
-                # Memory usage
-                memory = system_stats.get('memory', {})
-                memory_usage = 0
-                if memory:
-                    memory_total = memory.get('total', 1)
-                    memory_used = memory.get('used', 0)
-                    memory_usage = (memory_used / memory_total) * 100 if memory_total > 0 else 0
-                
-                # Bandwidth
-                week_traffic = "N/A"
-                month_traffic = "N/A"
-                if bandwidth_stats:
-                    week_data = bandwidth_stats.get('bandwidthLastSevenDays', {})
-                    month_data = bandwidth_stats.get('bandwidthLast30Days', {}) or bandwidth_stats.get('bandwidthLastThirtyDays', {})
-                    
-                    week_traffic = week_data.get('current', 'N/A') if week_data else 'N/A'
-                    month_traffic = month_data.get('current', 'N/A') if month_data else 'N/A'
-                
-                # Nodes
-                active_nodes = 0
-                total_nodes = 0
-                if nodes_stats and 'lastSevenDays' in nodes_stats:
-                    unique_nodes = set()
-                    for node_data in nodes_stats.get('lastSevenDays', []):
-                        unique_nodes.add(node_data.get('nodeName', ''))
-                    total_nodes = len(unique_nodes)
-                    active_nodes = total_nodes  # Assume all are active
-                elif system_stats and 'nodes' in system_stats:
-                    active_nodes = system_stats.get('nodes', {}).get('totalOnline', 0)
-                    total_nodes = active_nodes
-                
-                stats_text = _(
-                    "inline_system_stats_message",
-                    online=online_now,
-                    active=active_users,
-                    disabled=disabled_users,
-                    expired=expired_users,
-                    limited=limited_users,
-                    total=total_users,
-                    memory=memory_usage,
-                    week_traffic=week_traffic,
-                    month_traffic=month_traffic,
-                    active_nodes=active_nodes,
-                    total_nodes=total_nodes
-                )
-            else:
-                stats_text = _("inline_panel_stats_error")
+        # Get panel stats similar to main statistics.
+        # The injected shared PanelApiService can reuse short Redis cache.
+        system_stats = await panel_service.get_system_stats()
+        bandwidth_stats = await panel_service.get_bandwidth_stats()
+        nodes_stats = await panel_service.get_nodes_statistics()
+        online_now = 0
+        active_users = 0
+
+        if system_stats:
+            users = system_stats.get('users', {})
+            status_counts = users.get('statusCounts', {})
+            online_stats = system_stats.get('onlineStats', {})
+
+            active_users = status_counts.get('ACTIVE', 0)
+            disabled_users = status_counts.get('DISABLED', 0)
+            expired_users = status_counts.get('EXPIRED', 0)
+            limited_users = status_counts.get('LIMITED', 0)
+            total_users = users.get('totalUsers', 0)
+            online_now = online_stats.get('onlineNow', 0)
+
+            # Memory usage
+            memory = system_stats.get('memory', {})
+            memory_usage = 0
+            if memory:
+                memory_total = memory.get('total', 1)
+                memory_used = memory.get('used', 0)
+                memory_usage = (memory_used / memory_total) * 100 if memory_total > 0 else 0
+
+            # Bandwidth
+            week_traffic = "N/A"
+            month_traffic = "N/A"
+            if bandwidth_stats:
+                week_data = bandwidth_stats.get('bandwidthLastSevenDays', {})
+                month_data = bandwidth_stats.get('bandwidthLast30Days', {}) or bandwidth_stats.get('bandwidthLastThirtyDays', {})
+
+                week_traffic = week_data.get('current', 'N/A') if week_data else 'N/A'
+                month_traffic = month_data.get('current', 'N/A') if month_data else 'N/A'
+
+            # Nodes
+            active_nodes = 0
+            total_nodes = 0
+            if nodes_stats and 'lastSevenDays' in nodes_stats:
+                unique_nodes = set()
+                for node_data in nodes_stats.get('lastSevenDays', []):
+                    unique_nodes.add(node_data.get('nodeName', ''))
+                total_nodes = len(unique_nodes)
+                active_nodes = total_nodes  # Assume all are active
+            elif system_stats and 'nodes' in system_stats:
+                active_nodes = system_stats.get('nodes', {}).get('totalOnline', 0)
+                total_nodes = active_nodes
+
+            stats_text = _(
+                "inline_system_stats_message",
+                online=online_now,
+                active=active_users,
+                disabled=disabled_users,
+                expired=expired_users,
+                limited=limited_users,
+                total=total_users,
+                memory=memory_usage,
+                week_traffic=week_traffic,
+                month_traffic=month_traffic,
+                active_nodes=active_nodes,
+                total_nodes=total_nodes
+            )
+        else:
+            stats_text = _("inline_panel_stats_error")
         
         return InlineQueryResultArticle(
             id="admin_system_stats",
@@ -355,5 +375,4 @@ async def create_system_stats_result(session: AsyncSession, i18n_instance, lang:
             ),
             thumbnail_url=settings.INLINE_SYSTEM_STATS_THUMBNAIL_URL
         )
-        return None
 

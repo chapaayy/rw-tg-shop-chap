@@ -70,7 +70,8 @@ async def process_promo_code_input(message: types.Message, state: FSMContext,
                                    settings: Settings, i18n_data: dict,
                                    promo_code_service: PromoCodeService,
                                    subscription_service: SubscriptionService,
-                                   bot: Bot, session: AsyncSession):
+                                   bot: Bot, session: AsyncSession,
+                                   redis_service=None):
     logging.info(
         f"Processing promo code input from user {message.from_user.id} in state {await state.get_state()}: '{message.text}'"
     )
@@ -89,6 +90,19 @@ async def process_promo_code_input(message: types.Message, state: FSMContext,
     _ = lambda key, **kwargs: i18n.gettext(current_lang, key, **kwargs)
     code_input = message.text.strip() if message.text else ""
     user = message.from_user
+
+    if redis_service and getattr(redis_service, "is_available", lambda: False)():
+        allowed = await redis_service.check_rate_limit(
+            f"rate_limit:promo_input:{user.id}",
+            max_requests=5,
+            window_seconds=60,
+        )
+        if not allowed:
+            await message.answer(
+                _("error_try_again"),
+                reply_markup=get_back_to_main_menu_markup(current_lang, i18n),
+            )
+            return
 
     is_suspicious = False
     if not code_input:

@@ -33,6 +33,7 @@ async def build_and_start_web_app(
         "panel_webhook_service",
         "platega_service",
         "severpay_service",
+        "redis_service",
     ):
         # Access dispatcher workflow_data directly to avoid sequence protocol issues
         if hasattr(dp, "workflow_data") and key in dp.workflow_data:  # type: ignore

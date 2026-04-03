@@ -318,6 +318,7 @@ async def start_command_handler(message: types.Message,
                                 subscription_service: SubscriptionService,
                                 partner_service: PartnerService,
                                 session: AsyncSession,
+                                redis_service=None,
                                 promo_match: Optional[re.Match] = None,
                                 partner_match: Optional[re.Match] = None):
     await state.clear()
@@ -473,7 +474,13 @@ async def start_command_handler(message: types.Message,
     # Auto-apply promo code if provided via start parameter
     if promo_code_to_apply:
         try:
-            promo_code_service = PromoCodeService(settings, subscription_service, message.bot, i18n)
+            promo_code_service = PromoCodeService(
+                settings,
+                subscription_service,
+                message.bot,
+                i18n,
+                redis_service=redis_service,
+            )
 
             success_bonus, bonus_result = await promo_code_service.apply_promo_code(
                 session, user_id, promo_code_to_apply, current_lang

@@ -10,18 +10,38 @@ from urllib.parse import urlencode
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import Settings
+from .redis_service import RedisService
 from db.dal import panel_sync_dal
 from db.models import PanelSyncStatus
 
 
 class PanelApiService:
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, redis_service: Optional[RedisService] = None):
         self.settings = settings
+        self.redis_service = redis_service
         self.base_url = settings.PANEL_API_URL
         self.api_key = settings.PANEL_API_KEY
         self._session: Optional[aiohttp.ClientSession] = None
         self.default_client_ip = "127.0.0.1"
+
+    async def _cache_get(self, key: str) -> Optional[Dict[str, Any]]:
+        if not self.redis_service or not self.redis_service.is_available():
+            return None
+        cached = await self.redis_service.get_json(key)
+        if isinstance(cached, dict):
+            return cached
+        return None
+
+    async def _cache_set(self, key: str, value: Dict[str, Any], ttl_seconds: int) -> None:
+        if not self.redis_service or not self.redis_service.is_available():
+            return
+        await self.redis_service.set_json(key, value, ttl_seconds)
+
+    async def _cache_delete(self, key: str) -> None:
+        if not self.redis_service or not self.redis_service.is_available():
+            return
+        await self.redis_service.delete(key)
 
     async def __aenter__(self):
         """Context manager entry"""
@@ -254,13 +274,25 @@ class PanelApiService:
             self,
             user_uuid: str,
             log_response: bool = True) -> Optional[Dict[str, Any]]:
+        cache_key = f"cache:panel_user:{user_uuid}"
+        cached = await self._cache_get(cache_key)
+        if cached:
+            return cached
+
         endpoint = f"/users/{user_uuid}"
         full_response = await self._request("GET",
                                             endpoint,
                                             log_full_response=log_response)
         if full_response and not full_response.get(
                 "error") and "response" in full_response:
-            return full_response.get("response")
+            response_payload = full_response.get("response")
+            if isinstance(response_payload, dict):
+                await self._cache_set(
+                    cache_key,
+                    response_payload,
+                    max(1, int(self.settings.REDIS_CACHE_PANEL_USER_TTL_SECONDS)),
+                )
+            return response_payload
 
         return None
 
@@ -451,6 +483,7 @@ class PanelApiService:
         if full_response and not full_response.get(
                 "error") and "response" in full_response:
             logging.info(f"User {user_uuid} details updated on panel.")
+            await self._cache_delete(f"cache:panel_user:{user_uuid}")
             return full_response.get("response")
 
         logging.error(
@@ -479,6 +512,7 @@ class PanelApiService:
                 logging.info(
                     f"User {user_uuid} status on panel successfully set to {action} (Actual: {actual_status})."
                 )
+                await self._cache_delete(f"cache:panel_user:{user_uuid}")
                 return True
             else:
                 logging.warning(
@@ -513,6 +547,7 @@ class PanelApiService:
                 logging.info(
                     f"Panel user {user_uuid} already absent (errorCode {error_code}). Treating as deleted."
                 )
+                await self._cache_delete(f"cache:panel_user:{user_uuid}")
                 return True
             logging.error(
                 f"Failed to delete user {user_uuid} on panel. Response: {response_data}"
@@ -520,6 +555,7 @@ class PanelApiService:
             return False
 
         logging.info(f"Panel user {user_uuid} deleted successfully.")
+        await self._cache_delete(f"cache:panel_user:{user_uuid}")
         return True
 
     async def get_subscription_link(
@@ -575,23 +611,59 @@ class PanelApiService:
 
     async def get_system_stats(self) -> Optional[Dict[str, Any]]:
         """Get system statistics (CPU, memory, users counts)"""
+        cache_key = "cache:panel_stats:system"
+        cached = await self._cache_get(cache_key)
+        if cached:
+            return cached
+
         response_data = await self._request("GET", "/system/stats", log_full_response=False)
         if response_data and not response_data.get("error") and "response" in response_data:
-            return response_data.get("response")
+            payload = response_data.get("response")
+            if isinstance(payload, dict):
+                await self._cache_set(
+                    cache_key,
+                    payload,
+                    max(1, int(self.settings.REDIS_CACHE_PANEL_STATS_TTL_SECONDS)),
+                )
+            return payload
         return None
 
     async def get_bandwidth_stats(self) -> Optional[Dict[str, Any]]:
         """Get bandwidth statistics"""
+        cache_key = "cache:panel_stats:bandwidth"
+        cached = await self._cache_get(cache_key)
+        if cached:
+            return cached
+
         response_data = await self._request("GET", "/system/stats/bandwidth", log_full_response=False)
         if response_data and not response_data.get("error") and "response" in response_data:
-            return response_data.get("response")
+            payload = response_data.get("response")
+            if isinstance(payload, dict):
+                await self._cache_set(
+                    cache_key,
+                    payload,
+                    max(1, int(self.settings.REDIS_CACHE_PANEL_STATS_TTL_SECONDS)),
+                )
+            return payload
         return None
 
     async def get_nodes_statistics(self) -> Optional[Dict[str, Any]]:
         """Get nodes statistics"""
+        cache_key = "cache:panel_stats:nodes"
+        cached = await self._cache_get(cache_key)
+        if cached:
+            return cached
+
         response_data = await self._request("GET", "/system/stats/nodes", log_full_response=False)
         if response_data and not response_data.get("error") and "response" in response_data:
-            return response_data.get("response")
+            payload = response_data.get("response")
+            if isinstance(payload, dict):
+                await self._cache_set(
+                    cache_key,
+                    payload,
+                    max(1, int(self.settings.REDIS_CACHE_PANEL_STATS_TTL_SECONDS)),
+                )
+            return payload
         return None
 
     async def encrypt_happ_link(self, link_to_encrypt: str) -> Optional[str]:

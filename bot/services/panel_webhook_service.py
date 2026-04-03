@@ -12,6 +12,7 @@ from .panel_api_service import PanelApiService
 from bot.middlewares.i18n import JsonI18n
 from bot.keyboards.inline.user_keyboards import get_subscribe_only_markup, get_autorenew_cancel_keyboard
 from db.dal import user_dal
+from .redis_service import RedisService
 
 EVENT_MAP = {
     "user.expires_in_72_hours": (3, "subscription_72h_notification"),
@@ -20,12 +21,21 @@ EVENT_MAP = {
 }
 
 class PanelWebhookService:
-    def __init__(self, bot: Bot, settings: Settings, i18n: JsonI18n, async_session_factory: sessionmaker, panel_service: PanelApiService):
+    def __init__(
+        self,
+        bot: Bot,
+        settings: Settings,
+        i18n: JsonI18n,
+        async_session_factory: sessionmaker,
+        panel_service: PanelApiService,
+        redis_service: Optional[RedisService] = None,
+    ):
         self.bot = bot
         self.settings = settings
         self.i18n = i18n
         self.async_session_factory = async_session_factory
         self.panel_service = panel_service
+        self.redis_service = redis_service
 
     async def _send_message(
         self,
@@ -164,6 +174,30 @@ class PanelWebhookService:
 
         if not event_name:
             return web.Response(status=200, text="ok_no_event")
+
+        if (
+            self.redis_service
+            and self.redis_service.is_available()
+            and telegram_id is not None
+        ):
+            expire_fingerprint = ""
+            if isinstance(user_data, dict):
+                expire_fingerprint = str(user_data.get("expireAt") or "")
+            dedupe_key = (
+                f"dedupe:panel_webhook:{event_name}:{telegram_id}:{expire_fingerprint or 'none'}"
+            )
+            is_new_event = await self.redis_service.set_if_not_exists(
+                dedupe_key,
+                "1",
+                max(1, int(self.settings.REDIS_PANEL_EVENT_DEDUP_TTL_SECONDS)),
+            )
+            if not is_new_event:
+                logging.info(
+                    "Panel webhook duplicate ignored: event=%s telegramId=%s",
+                    event_name,
+                    telegram_id,
+                )
+                return web.Response(status=200, text="ok_duplicate")
 
         logging.info(
             "Panel webhook event received: %s; telegramId=%s",

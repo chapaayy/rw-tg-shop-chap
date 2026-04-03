@@ -34,6 +34,7 @@ from bot.services.partner_service import PartnerService
 from bot.services.promo_code_service import PromoCodeService
 from bot.services.stars_service import StarsService
 from bot.services.crypto_pay_service import CryptoPayService, cryptopay_webhook_route
+from bot.services.redis_service import RedisService
 
 from bot.handlers.user import payment as user_payment_webhook_module
 from bot.handlers.admin.sync_admin import perform_sync
@@ -204,6 +205,7 @@ async def on_shutdown_configured(dispatcher: Dispatcher):
                     logging.warning(f"Failed to close session for {key}: {e}")
 
     for service_key in (
+        "redis_service",
         "panel_service",
         "cryptopay_service",
         "freekassa_service",
@@ -244,7 +246,14 @@ async def run_bot(settings_param: Settings):
             "Failed to initialize database connection and session factory. Exiting."
         )
         return
-    dp, bot, extra = build_dispatcher(settings_param, local_async_session_factory)
+    redis_service = RedisService(settings_param)
+    await redis_service.connect()
+
+    dp, bot, extra = build_dispatcher(
+        settings_param,
+        local_async_session_factory,
+        redis_service=redis_service,
+    )
     i18n_instance = extra["i18n_instance"]
 
     # Get bot username for YooKassa default return URL if needed
@@ -264,6 +273,7 @@ async def run_bot(settings_param: Settings):
         local_async_session_factory,
         i18n_instance,
         actual_bot_username,
+        redis_service=redis_service,
     )
     for key, service in services.items():
         dp[key] = service

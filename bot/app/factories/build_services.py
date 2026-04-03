@@ -16,6 +16,7 @@ from bot.services.freekassa_service import FreeKassaService
 from bot.services.platega_service import PlategaService
 from bot.services.severpay_service import SeverPayService
 from bot.services.lknpd_service import LknpdService
+from bot.services.redis_service import RedisService
 
 
 def build_core_services(
@@ -24,11 +25,24 @@ def build_core_services(
     async_session_factory: sessionmaker,
     i18n: JsonI18n,
     bot_username_for_default_return: str,
+    redis_service: RedisService | None = None,
 ):
-    panel_service = PanelApiService(settings)
-    subscription_service = SubscriptionService(settings, panel_service, bot, i18n)
+    panel_service = PanelApiService(settings, redis_service=redis_service)
+    subscription_service = SubscriptionService(
+        settings,
+        panel_service,
+        bot,
+        i18n,
+        redis_service=redis_service,
+    )
     partner_service = PartnerService(settings, bot, i18n)
-    promo_code_service = PromoCodeService(settings, subscription_service, bot, i18n)
+    promo_code_service = PromoCodeService(
+        settings,
+        subscription_service,
+        bot,
+        i18n,
+        redis_service=redis_service,
+    )
     stars_service = StarsService(bot, settings, i18n, subscription_service, partner_service)
     cryptopay_service = CryptoPayService(
         settings.CRYPTOPAY_TOKEN,
@@ -66,7 +80,14 @@ def build_core_services(
         partner_service=partner_service,
         default_return_url=bot_username_for_default_return,
     )
-    panel_webhook_service = PanelWebhookService(bot, settings, i18n, async_session_factory, panel_service)
+    panel_webhook_service = PanelWebhookService(
+        bot,
+        settings,
+        i18n,
+        async_session_factory,
+        panel_service,
+        redis_service=redis_service,
+    )
     yookassa_service = YooKassaService(
         shop_id=settings.YOOKASSA_SHOP_ID,
         secret_key=settings.YOOKASSA_SECRET_KEY,

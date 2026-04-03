@@ -2,7 +2,7 @@ import logging
 import asyncio
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional, Tuple
+from typing import Optional, Tuple, TYPE_CHECKING
 from aiogram import Bot
 from sqlalchemy.orm import sessionmaker
 
@@ -14,22 +14,49 @@ from .subscription_service import SubscriptionService
 from bot.middlewares.i18n import JsonI18n
 from .notification_service import NotificationService
 
+if TYPE_CHECKING:
+    from .redis_service import RedisService
+
 
 class PromoCodeService:
 
     def __init__(self, settings: Settings,
                  subscription_service: SubscriptionService, bot: Bot,
-                 i18n: JsonI18n):
+                 i18n: JsonI18n,
+                 redis_service: Optional["RedisService"] = None):
         self.settings = settings
         self.subscription_service = subscription_service
         self.bot = bot
         self.i18n = i18n
+        self.redis_service = redis_service
         self.discount_payment_timeout_minutes = max(
             1,
             int(getattr(settings, "DISCOUNT_PROMO_PAYMENT_TIMEOUT_MINUTES", 10) or 10),
         )
         self._discount_expiration_task: Optional[asyncio.Task] = None
         self._async_session_factory: Optional[sessionmaker] = None
+
+    async def _acquire_user_promo_lock(self, user_id: int) -> tuple[Optional[str], Optional[str]]:
+        if not self.redis_service or not self.redis_service.is_available():
+            return None, None
+        lock_key = f"lock:promo:apply:{user_id}"
+        token = await self.redis_service.acquire_lock(
+            lock_key,
+            max(1, int(self.settings.REDIS_PROMO_LOCK_TTL_SECONDS)),
+        )
+        if token is None:
+            # Block only when lock is actually held.
+            # If Redis is flaky and we cannot confirm lock existence, fail open.
+            lock_exists = await self.redis_service.exists(lock_key)
+            if lock_exists:
+                return lock_key, None
+            return None, None
+        return lock_key, token
+
+    async def _release_user_promo_lock(self, lock_key: Optional[str], token: Optional[str]) -> None:
+        if not lock_key or not token or not self.redis_service or not self.redis_service.is_available():
+            return
+        await self.redis_service.release_lock(lock_key, token)
 
     async def setup_discount_expiration_worker(
         self,
@@ -151,55 +178,62 @@ class PromoCodeService:
         _ = lambda k, **kw: self.i18n.gettext(user_lang, k, **kw)
         code_input_upper = code_input.strip().upper()
 
-        promo_data = await promo_code_dal.get_active_bonus_promo_code_by_code_str(
-            session, code_input_upper)
+        lock_key, lock_token = await self._acquire_user_promo_lock(user_id)
+        if lock_key and not lock_token:
+            return False, _("error_try_again")
 
-        if not promo_data:
-            return False, _("promo_code_not_found", code=code_input_upper)
+        try:
+            promo_data = await promo_code_dal.get_active_bonus_promo_code_by_code_str(
+                session, code_input_upper)
 
-        existing_activation = await promo_code_dal.get_user_activation_for_promo(
-            session, promo_data.promo_code_id, user_id)
-        if existing_activation:
-            return False, _("promo_code_already_used_by_user",
-                            code=code_input_upper)
+            if not promo_data:
+                return False, _("promo_code_not_found", code=code_input_upper)
 
-        bonus_days = promo_data.bonus_days
+            existing_activation = await promo_code_dal.get_user_activation_for_promo(
+                session, promo_data.promo_code_id, user_id)
+            if existing_activation:
+                return False, _("promo_code_already_used_by_user",
+                                code=code_input_upper)
 
-        new_end_date = await self.subscription_service.extend_active_subscription_days(
-            session=session,
-            user_id=user_id,
-            bonus_days=bonus_days,
-            reason=f"promo code {code_input_upper}")
+            bonus_days = promo_data.bonus_days
 
-        if new_end_date:
-            activation_recorded = await promo_code_dal.record_promo_activation(
-                session, promo_data.promo_code_id, user_id, payment_id=None)
-            promo_incremented = await promo_code_dal.increment_promo_code_usage(
-                session, promo_data.promo_code_id)
+            new_end_date = await self.subscription_service.extend_active_subscription_days(
+                session=session,
+                user_id=user_id,
+                bonus_days=bonus_days,
+                reason=f"promo code {code_input_upper}")
 
-            if activation_recorded and promo_incremented:
-                # Send notification about promo activation
-                try:
-                    notification_service = NotificationService(self.bot, self.settings, self.i18n)
-                    user = await user_dal.get_user_by_id(session, user_id)
-                    await notification_service.notify_promo_activation(
-                        user_id=user_id,
-                        promo_code=code_input_upper,
-                        bonus_days=bonus_days,
-                        username=user.username if user else None
+            if new_end_date:
+                activation_recorded = await promo_code_dal.record_promo_activation(
+                    session, promo_data.promo_code_id, user_id, payment_id=None)
+                promo_incremented = await promo_code_dal.increment_promo_code_usage(
+                    session, promo_data.promo_code_id)
+
+                if activation_recorded and promo_incremented:
+                    # Send notification about promo activation
+                    try:
+                        notification_service = NotificationService(self.bot, self.settings, self.i18n)
+                        user = await user_dal.get_user_by_id(session, user_id)
+                        await notification_service.notify_promo_activation(
+                            user_id=user_id,
+                            promo_code=code_input_upper,
+                            bonus_days=bonus_days,
+                            username=user.username if user else None
+                        )
+                    except Exception as e:
+                        logging.error(f"Failed to send promo activation notification: {e}")
+
+                    return True, new_end_date
+                else:
+
+                    logging.error(
+                        f"Failed to record activation or increment usage for promo {promo_data.code} by user {user_id}"
                     )
-                except Exception as e:
-                    logging.error(f"Failed to send promo activation notification: {e}")
-                
-                return True, new_end_date
+                    return False, _("error_applying_promo_bonus")
             else:
-
-                logging.error(
-                    f"Failed to record activation or increment usage for promo {promo_data.code} by user {user_id}"
-                )
                 return False, _("error_applying_promo_bonus")
-        else:
-            return False, _("error_applying_promo_bonus")
+        finally:
+            await self._release_user_promo_lock(lock_key, lock_token)
 
     async def apply_discount_promo_code(
         self,
@@ -215,88 +249,95 @@ class PromoCodeService:
         _ = lambda k, **kw: self.i18n.gettext(user_lang, k, **kw)
         code_input_upper = code_input.strip().upper()
 
-        # Check if user already has an active discount
-        existing_discount = await active_discount_dal.get_active_discount(
-            session,
-            user_id,
-            include_expired=True,
-        )
-        if existing_discount:
-            now_utc = datetime.now(timezone.utc)
-            if existing_discount.expires_at <= now_utc:
-                cleared = await active_discount_dal.clear_active_discount_if_expired(
-                    session,
-                    user_id,
-                    now=now_utc,
-                )
-                if cleared:
-                    await promo_code_dal.decrement_promo_code_usage(
-                        session,
-                        existing_discount.promo_code_id,
-                    )
-                existing_discount = None
+        lock_key, lock_token = await self._acquire_user_promo_lock(user_id)
+        if lock_key and not lock_token:
+            return False, _("error_try_again")
 
-        if existing_discount:
-            # Get the promo code for the existing discount
-            existing_promo = await promo_code_dal.get_promo_code_by_id(
-                session, existing_discount.promo_code_id
+        try:
+            # Check if user already has an active discount
+            existing_discount = await active_discount_dal.get_active_discount(
+                session,
+                user_id,
+                include_expired=True,
             )
-            if existing_promo:
-                return False, _("discount_promo_already_active",
-                               code=existing_promo.code,
-                               discount_pct=existing_discount.discount_percentage)
-            else:
-                # Existing discount but promo not found - clear it and continue
-                await active_discount_dal.clear_active_discount(session, user_id)
+            if existing_discount:
+                now_utc = datetime.now(timezone.utc)
+                if existing_discount.expires_at <= now_utc:
+                    cleared = await active_discount_dal.clear_active_discount_if_expired(
+                        session,
+                        user_id,
+                        now=now_utc,
+                    )
+                    if cleared:
+                        await promo_code_dal.decrement_promo_code_usage(
+                            session,
+                            existing_discount.promo_code_id,
+                        )
+                    existing_discount = None
 
-        # Get discount promo code
-        promo_data = await promo_code_dal.get_active_discount_promo_code_by_code_str(
-            session, code_input_upper
-        )
+            if existing_discount:
+                # Get the promo code for the existing discount
+                existing_promo = await promo_code_dal.get_promo_code_by_id(
+                    session, existing_discount.promo_code_id
+                )
+                if existing_promo:
+                    return False, _("discount_promo_already_active",
+                                   code=existing_promo.code,
+                                   discount_pct=existing_discount.discount_percentage)
+                else:
+                    # Existing discount but promo not found - clear it and continue
+                    await active_discount_dal.clear_active_discount(session, user_id)
 
-        if not promo_data:
-            return False, _("promo_code_not_found_or_not_discount", code=code_input_upper)
+            # Get discount promo code
+            promo_data = await promo_code_dal.get_active_discount_promo_code_by_code_str(
+                session, code_input_upper
+            )
 
-        # Check if user already used this code
-        existing_activation = await promo_code_dal.get_user_activation_for_promo(
-            session, promo_data.promo_code_id, user_id
-        )
-        if existing_activation:
-            return False, _("promo_code_already_used_by_user", code=code_input_upper)
+            if not promo_data:
+                return False, _("promo_code_not_found_or_not_discount", code=code_input_upper)
 
-        # Reserve discount for limited time and count activation immediately
-        expires_at = datetime.now(timezone.utc) + timedelta(
-            minutes=self.discount_payment_timeout_minutes,
-        )
-        active_discount = await active_discount_dal.set_active_discount(
-            session,
-            user_id=user_id,
-            promo_code_id=promo_data.promo_code_id,
-            discount_percentage=promo_data.discount_percentage,
-            expires_at=expires_at,
-        )
+            # Check if user already used this code
+            existing_activation = await promo_code_dal.get_user_activation_for_promo(
+                session, promo_data.promo_code_id, user_id
+            )
+            if existing_activation:
+                return False, _("promo_code_already_used_by_user", code=code_input_upper)
 
-        if not active_discount:
-            # This shouldn't happen since we checked above, but just in case
-            return False, _("error_applying_promo_discount")
-
-        promo_incremented = await promo_code_dal.increment_promo_code_usage(
-            session,
-            promo_data.promo_code_id,
-        )
-        if not promo_incremented:
-            await active_discount_dal.clear_active_discount_if_matches(
+            # Reserve discount for limited time and count activation immediately
+            expires_at = datetime.now(timezone.utc) + timedelta(
+                minutes=self.discount_payment_timeout_minutes,
+            )
+            active_discount = await active_discount_dal.set_active_discount(
                 session,
                 user_id=user_id,
                 promo_code_id=promo_data.promo_code_id,
+                discount_percentage=promo_data.discount_percentage,
+                expires_at=expires_at,
             )
-            return False, _("promo_code_not_found_or_not_discount", code=code_input_upper)
 
-        logging.info(
-            f"Discount promo code {code_input_upper} activated for user {user_id}: "
-            f"{promo_data.discount_percentage}% off until {expires_at.isoformat()}"
-        )
-        return True, promo_data.discount_percentage
+            if not active_discount:
+                # This shouldn't happen since we checked above, but just in case
+                return False, _("error_applying_promo_discount")
+
+            promo_incremented = await promo_code_dal.increment_promo_code_usage(
+                session,
+                promo_data.promo_code_id,
+            )
+            if not promo_incremented:
+                await active_discount_dal.clear_active_discount_if_matches(
+                    session,
+                    user_id=user_id,
+                    promo_code_id=promo_data.promo_code_id,
+                )
+                return False, _("promo_code_not_found_or_not_discount", code=code_input_upper)
+
+            logging.info(
+                f"Discount promo code {code_input_upper} activated for user {user_id}: "
+                f"{promo_data.discount_percentage}% off until {expires_at.isoformat()}"
+            )
+            return True, promo_data.discount_percentage
+        finally:
+            await self._release_user_promo_lock(lock_key, lock_token)
 
     async def get_user_active_discount(
         self,

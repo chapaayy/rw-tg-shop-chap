@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import quote
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, ValidationError, computed_field, field_validator, model_validator
 from typing import Optional, List, Dict, Any
@@ -17,6 +18,23 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = Field(default="localhost")
     POSTGRES_PORT: int = Field(default=5432)
     POSTGRES_DB: str = Field(default="vpn_shop_db")
+
+    REDIS_ENABLED: bool = Field(default=False)
+    REDIS_URL: Optional[str] = Field(default=None)
+    REDIS_HOST: str = Field(default="localhost")
+    REDIS_PORT: int = Field(default=6379)
+    REDIS_DB: int = Field(default=0)
+    REDIS_PASSWORD: Optional[str] = Field(default=None)
+    REDIS_KEY_PREFIX: str = Field(default="rw_tg_shop_chap")
+    REDIS_CONNECT_TIMEOUT_SECONDS: float = Field(default=2.0)
+    REDIS_SOCKET_TIMEOUT_SECONDS: float = Field(default=2.0)
+    REDIS_FSM_STATE_TTL_SECONDS: int = Field(default=86400)
+    REDIS_FSM_DATA_TTL_SECONDS: int = Field(default=86400)
+    REDIS_PAYMENT_LOCK_TTL_SECONDS: int = Field(default=15)
+    REDIS_PROMO_LOCK_TTL_SECONDS: int = Field(default=15)
+    REDIS_PANEL_EVENT_DEDUP_TTL_SECONDS: int = Field(default=300)
+    REDIS_CACHE_PANEL_USER_TTL_SECONDS: int = Field(default=15)
+    REDIS_CACHE_PANEL_STATS_TTL_SECONDS: int = Field(default=30)
 
     DEFAULT_LANGUAGE: str = Field(default="ru")
 
@@ -227,6 +245,16 @@ class Settings(BaseSettings):
     @property
     def DATABASE_URL(self) -> str:
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+
+    @computed_field
+    @property
+    def redis_dsn(self) -> str:
+        if self.REDIS_URL:
+            return self.REDIS_URL
+        auth_segment = ""
+        if self.REDIS_PASSWORD:
+            auth_segment = f":{quote(self.REDIS_PASSWORD, safe='')}@"
+        return f"redis://{auth_segment}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     @computed_field
     @property
@@ -633,6 +661,8 @@ class Settings(BaseSettings):
         'TELEGRAM_WEBHOOK_SECRET',
         'PANEL_WEBHOOK_SECRET',
         'TELEGRAM_PROXY_URL',
+        'REDIS_URL',
+        'REDIS_PASSWORD',
         mode='before',
     )
     @classmethod

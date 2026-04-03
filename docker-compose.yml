@@ -12,6 +12,8 @@
     depends_on:
       rw-tg-shop-chap-db:
         condition: service_healthy
+      rw-tg-shop-chap-redis:
+        condition: service_healthy
 
   rw-tg-shop-chap-db:
     image: postgres:17
@@ -30,6 +32,22 @@
       timeout: 5s
       retries: 20
 
+  rw-tg-shop-chap-redis:
+    image: redis:7-alpine
+    container_name: rw-tg-shop-chap-redis
+    hostname: rw-tg-shop-chap-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - rw-tg-shop-chap-redis-data:/data
+    networks:
+      - remnawave-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 networks:
   remnawave-network:
     external: true
@@ -37,4 +55,6 @@ networks:
 volumes:
   rw-tg-shop-chap-db-data:
     name: rw-tg-shop-chap-db-data
+  rw-tg-shop-chap-redis-data:
+    name: rw-tg-shop-chap-redis-data
 
