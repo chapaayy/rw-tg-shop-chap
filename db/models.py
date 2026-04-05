@@ -1,4 +1,18 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Float, ForeignKey, UniqueConstraint, Text, BigInteger
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    UniqueConstraint,
+    Text,
+    BigInteger,
+    Index,
+    text,
+)
 from sqlalchemy.orm import relationship, DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.sql import func
@@ -334,3 +348,44 @@ class PartnerCommission(Base):
     partner_user = relationship("User", foreign_keys=[partner_user_id])
     invited_user = relationship("User", foreign_keys=[invited_user_id])
     payment = relationship("Payment")
+
+
+class PartnerWithdrawalRequest(Base):
+    __tablename__ = "partner_withdrawal_requests"
+
+    request_id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(
+        BigInteger, ForeignKey("users.user_id"), nullable=False, index=True
+    )
+    amount = Column(Float, nullable=False)
+    payout_method = Column(String(32), nullable=False)
+    payout_details = Column(Text, nullable=False)
+    status = Column(String(32), nullable=False, default="pending", index=True)
+
+    available_balance_snapshot = Column(Float, nullable=False, default=0.0)
+    in_process_balance_snapshot = Column(Float, nullable=False, default=0.0)
+    total_income_snapshot = Column(Float, nullable=False, default=0.0)
+
+    admin_note = Column(Text, nullable=True)
+    reject_reason = Column(Text, nullable=True)
+
+    admin_chat_id = Column(BigInteger, nullable=True)
+    admin_thread_id = Column(Integer, nullable=True)
+    admin_message_id = Column(Integer, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+    processed_by_admin_id = Column(BigInteger, nullable=True)
+
+    user = relationship("User")
+
+    __table_args__ = (
+        Index("ix_partner_withdrawal_requests_created_at", "created_at"),
+        Index(
+            "uq_partner_withdrawal_requests_active_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'approved')"),
+        ),
+    )

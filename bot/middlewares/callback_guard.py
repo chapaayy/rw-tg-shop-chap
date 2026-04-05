@@ -92,6 +92,20 @@ class CallbackGuardMiddleware(BaseMiddleware):
                 max_requests=12,
                 window_seconds=20,
             ),
+            CallbackGuardRule(
+                prefixes=("partners_action:withdraw_confirm",),
+                rate_scope="partner_withdraw_create",
+                max_requests=3,
+                window_seconds=30,
+                lock_scope="partner_withdraw_create",
+                lock_ttl_seconds=10,
+            ),
+            CallbackGuardRule(
+                prefixes=("partner_withdraw_admin:",),
+                rate_scope="partner_withdraw_admin",
+                max_requests=20,
+                window_seconds=30,
+            ),
         )
 
     async def __call__(

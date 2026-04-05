@@ -192,6 +192,26 @@ class Settings(BaseSettings):
         default=True,
         description="Enable partner links, partner menu and partner payouts.",
     )
+    REFERRAL_WITHDRAWALS_ENABLED: bool = Field(
+        default=True,
+        description="Enable manual withdrawal requests for partner earnings.",
+    )
+    REFERRAL_WITHDRAWAL_MIN_AMOUNT_RUB: float = Field(
+        default=0.0,
+        description="Minimum withdrawal request amount in RUB (0 disables the minimum limit).",
+    )
+    REFERRAL_WITHDRAWAL_REQUESTS_CHAT_ID: Optional[int] = Field(
+        default=None,
+        description="Target chat ID for partner withdrawal requests.",
+    )
+    REFERRAL_WITHDRAWAL_REQUESTS_THREAD_ID: Optional[int] = Field(
+        default=None,
+        description="Target thread ID for partner withdrawal requests (optional).",
+    )
+    REFERRAL_WITHDRAWAL_HOLD_DAYS: int = Field(
+        default=14,
+        description="Number of days partner commission stays on hold before it becomes withdrawable.",
+    )
 
     PANEL_API_URL: Optional[str] = None
     PANEL_API_KEY: Optional[str] = None
@@ -690,6 +710,8 @@ class Settings(BaseSettings):
         'LOG_TRIAL_ACTIVATIONS_THREAD_ID',
         'LOG_SUSPICIOUS_ACTIVITY_CHAT_ID',
         'LOG_SUSPICIOUS_ACTIVITY_THREAD_ID',
+        'REFERRAL_WITHDRAWAL_REQUESTS_CHAT_ID',
+        'REFERRAL_WITHDRAWAL_REQUESTS_THREAD_ID',
         'YOOKASSA_TAX_SYSTEM_CODE',
         mode='before'
     )
@@ -700,6 +722,22 @@ class Settings(BaseSettings):
             if not v:
                 return None
         return v
+
+    @field_validator('REFERRAL_WITHDRAWAL_MIN_AMOUNT_RUB')
+    @classmethod
+    def validate_referral_withdrawal_min_amount(cls, v):
+        value = float(v or 0.0)
+        if value < 0:
+            raise ValueError("REFERRAL_WITHDRAWAL_MIN_AMOUNT_RUB cannot be negative.")
+        return value
+
+    @field_validator('REFERRAL_WITHDRAWAL_HOLD_DAYS')
+    @classmethod
+    def validate_referral_withdrawal_hold_days(cls, v):
+        value = int(v or 0)
+        if value < 0:
+            raise ValueError("REFERRAL_WITHDRAWAL_HOLD_DAYS cannot be negative.")
+        return value
 
     @field_validator('YOOKASSA_PAYMENT_MODE', 'YOOKASSA_PAYMENT_SUBJECT', mode='before')
     @classmethod
@@ -802,6 +840,15 @@ def get_settings() -> Settings:
                     logging.warning(
                         "CRITICAL: SeverPay is enabled but MID or TOKEN is missing. SeverPay payments will not work."
                     )
+            if (
+                _settings_instance.REFERRAL_WITHDRAWALS_ENABLED
+                and _settings_instance.PARTNER_PROGRAM_ENABLED
+                and _settings_instance.REFERRAL_WITHDRAWAL_REQUESTS_CHAT_ID is None
+            ):
+                logging.warning(
+                    "WARNING: REFERRAL_WITHDRAWALS_ENABLED is true but REFERRAL_WITHDRAWAL_REQUESTS_CHAT_ID is empty. "
+                    "Partner withdrawal request creation will be unavailable."
+                )
 
         except ValidationError as e:
             logging.critical(

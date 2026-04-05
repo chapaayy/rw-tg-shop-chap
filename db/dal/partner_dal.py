@@ -1,12 +1,14 @@
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
     PartnerAccount,
     PartnerCommission,
+    PartnerWithdrawalRequest,
     PartnerProgramSettings,
     PartnerReferral,
     Payment,
@@ -20,6 +22,23 @@ def _normalize_slug(value: str) -> str:
 
 def build_default_slug(user_id: int) -> str:
     return f"u{user_id}"
+
+
+PARTNER_WITHDRAWAL_METHOD_SBP = "sbp"
+PARTNER_WITHDRAWAL_METHOD_USDT_TRC20 = "usdt_trc20"
+
+PARTNER_WITHDRAWAL_STATUS_PENDING = "pending"
+PARTNER_WITHDRAWAL_STATUS_APPROVED = "approved"
+PARTNER_WITHDRAWAL_STATUS_REJECTED = "rejected"
+PARTNER_WITHDRAWAL_STATUS_PAID = "paid"
+PARTNER_WITHDRAWAL_STATUS_CANCELLED = "cancelled"
+
+PARTNER_WITHDRAWAL_ACTIVE_STATUSES = (
+    PARTNER_WITHDRAWAL_STATUS_PENDING,
+    PARTNER_WITHDRAWAL_STATUS_APPROVED,
+)
+PARTNER_WITHDRAWAL_RESERVED_STATUSES = PARTNER_WITHDRAWAL_ACTIVE_STATUSES
+PARTNER_WITHDRAWAL_IN_PROCESS_STATUSES = (PARTNER_WITHDRAWAL_STATUS_APPROVED,)
 
 
 async def get_or_create_program_settings(session: AsyncSession) -> PartnerProgramSettings:
@@ -390,4 +409,213 @@ async def get_payment_currency(session: AsyncSession, payment_id: int) -> str:
     result = await session.execute(stmt)
     currency = result.scalar_one_or_none()
     return (currency or "RUB").upper()
+
+
+async def get_partner_income_until_datetime(
+    session: AsyncSession,
+    partner_user_id: int,
+    *,
+    max_created_at: Optional[datetime] = None,
+) -> float:
+    conditions = [PartnerCommission.partner_user_id == partner_user_id]
+    if max_created_at is not None:
+        conditions.append(PartnerCommission.created_at <= max_created_at)
+
+    stmt = select(func.coalesce(func.sum(PartnerCommission.commission_amount), 0.0)).where(
+        and_(*conditions)
+    )
+    result = await session.execute(stmt)
+    return float(result.scalar() or 0.0)
+
+
+async def get_partner_withdrawal_sum_by_statuses(
+    session: AsyncSession,
+    user_id: int,
+    statuses: Tuple[str, ...],
+) -> float:
+    if not statuses:
+        return 0.0
+    stmt = select(func.coalesce(func.sum(PartnerWithdrawalRequest.amount), 0.0)).where(
+        PartnerWithdrawalRequest.user_id == user_id,
+        PartnerWithdrawalRequest.status.in_(statuses),
+    )
+    result = await session.execute(stmt)
+    return float(result.scalar() or 0.0)
+
+
+async def get_partner_withdrawal_aggregates(session: AsyncSession, user_id: int) -> Dict[str, float]:
+    reserved = await get_partner_withdrawal_sum_by_statuses(
+        session, user_id, PARTNER_WITHDRAWAL_RESERVED_STATUSES
+    )
+    in_process = await get_partner_withdrawal_sum_by_statuses(
+        session, user_id, PARTNER_WITHDRAWAL_IN_PROCESS_STATUSES
+    )
+    paid = await get_partner_withdrawal_sum_by_statuses(
+        session, user_id, (PARTNER_WITHDRAWAL_STATUS_PAID,)
+    )
+    return {
+        "reserved": reserved,
+        "in_process": in_process,
+        "paid": paid,
+    }
+
+
+async def get_active_partner_withdrawal_request_for_user(
+    session: AsyncSession, user_id: int
+) -> Optional[PartnerWithdrawalRequest]:
+    stmt = (
+        select(PartnerWithdrawalRequest)
+        .where(
+            PartnerWithdrawalRequest.user_id == user_id,
+            PartnerWithdrawalRequest.status.in_(PARTNER_WITHDRAWAL_ACTIVE_STATUSES),
+        )
+        .order_by(
+            PartnerWithdrawalRequest.created_at.desc(),
+            PartnerWithdrawalRequest.request_id.desc(),
+        )
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def create_partner_withdrawal_request(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    amount: float,
+    payout_method: str,
+    payout_details: str,
+    available_balance_snapshot: float,
+    in_process_balance_snapshot: float,
+    total_income_snapshot: float,
+) -> PartnerWithdrawalRequest:
+    model = PartnerWithdrawalRequest(
+        user_id=user_id,
+        amount=float(amount),
+        payout_method=payout_method,
+        payout_details=payout_details,
+        status=PARTNER_WITHDRAWAL_STATUS_PENDING,
+        available_balance_snapshot=float(available_balance_snapshot),
+        in_process_balance_snapshot=float(in_process_balance_snapshot),
+        total_income_snapshot=float(total_income_snapshot),
+    )
+    session.add(model)
+    await session.flush()
+    await session.refresh(model)
+    return model
+
+
+async def get_partner_withdrawal_request_by_id(
+    session: AsyncSession, request_id: int
+) -> Optional[PartnerWithdrawalRequest]:
+    stmt = select(PartnerWithdrawalRequest).where(
+        PartnerWithdrawalRequest.request_id == request_id
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def set_partner_withdrawal_admin_message_meta(
+    session: AsyncSession,
+    *,
+    request_id: int,
+    admin_chat_id: int,
+    admin_thread_id: Optional[int],
+    admin_message_id: int,
+) -> Optional[PartnerWithdrawalRequest]:
+    model = await get_partner_withdrawal_request_by_id(session, request_id)
+    if not model:
+        return None
+
+    model.admin_chat_id = admin_chat_id
+    model.admin_thread_id = admin_thread_id
+    model.admin_message_id = admin_message_id
+    await session.flush()
+    await session.refresh(model)
+    return model
+
+
+async def approve_partner_withdrawal_request(
+    session: AsyncSession,
+    *,
+    request_id: int,
+    admin_id: int,
+    admin_note: Optional[str] = None,
+) -> Optional[PartnerWithdrawalRequest]:
+    stmt = (
+        update(PartnerWithdrawalRequest)
+        .where(
+            PartnerWithdrawalRequest.request_id == request_id,
+            PartnerWithdrawalRequest.status == PARTNER_WITHDRAWAL_STATUS_PENDING,
+        )
+        .values(
+            status=PARTNER_WITHDRAWAL_STATUS_APPROVED,
+            processed_at=func.now(),
+            processed_by_admin_id=admin_id,
+            admin_note=admin_note,
+            reject_reason=None,
+        )
+    )
+    result = await session.execute(stmt)
+    if not (result.rowcount or 0):
+        return None
+    return await get_partner_withdrawal_request_by_id(session, request_id)
+
+
+async def reject_partner_withdrawal_request(
+    session: AsyncSession,
+    *,
+    request_id: int,
+    admin_id: int,
+    reject_reason: Optional[str] = None,
+) -> Optional[PartnerWithdrawalRequest]:
+    stmt = (
+        update(PartnerWithdrawalRequest)
+        .where(
+            PartnerWithdrawalRequest.request_id == request_id,
+            PartnerWithdrawalRequest.status == PARTNER_WITHDRAWAL_STATUS_PENDING,
+        )
+        .values(
+            status=PARTNER_WITHDRAWAL_STATUS_REJECTED,
+            processed_at=func.now(),
+            processed_by_admin_id=admin_id,
+            reject_reason=reject_reason,
+        )
+    )
+    result = await session.execute(stmt)
+    if not (result.rowcount or 0):
+        return None
+    return await get_partner_withdrawal_request_by_id(session, request_id)
+
+
+async def mark_partner_withdrawal_request_paid(
+    session: AsyncSession,
+    *,
+    request_id: int,
+    admin_id: int,
+    admin_note: Optional[str] = None,
+) -> Optional[PartnerWithdrawalRequest]:
+    stmt = (
+        update(PartnerWithdrawalRequest)
+        .where(
+            PartnerWithdrawalRequest.request_id == request_id,
+            PartnerWithdrawalRequest.status == PARTNER_WITHDRAWAL_STATUS_APPROVED,
+        )
+        .values(
+            status=PARTNER_WITHDRAWAL_STATUS_PAID,
+            paid_at=func.now(),
+            processed_at=func.coalesce(
+                PartnerWithdrawalRequest.processed_at,
+                func.now(),
+            ),
+            processed_by_admin_id=admin_id,
+            admin_note=admin_note,
+            reject_reason=None,
+        )
+    )
+    result = await session.execute(stmt)
+    if not (result.rowcount or 0):
+        return None
+    return await get_partner_withdrawal_request_by_id(session, request_id)
 

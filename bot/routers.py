@@ -12,7 +12,10 @@ def build_root_router(settings: Settings) -> Router:
 
     # Allow all updates only in private chats (messages, callback queries, etc.)
     root.message.filter(F.chat.type == "private")
-    root.callback_query.filter(F.message.chat.type == "private")
+    root.callback_query.filter(
+        (F.message.chat.type == "private")
+        | F.data.startswith("partner_withdraw_admin:")
+    )
 
     # Public routers
     root.include_router(user_router_aggregate)
@@ -27,4 +30,3 @@ def build_root_router(settings: Settings) -> Router:
     root.include_router(admin_main_router)
 
     return root
-

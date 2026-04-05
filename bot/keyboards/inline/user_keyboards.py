@@ -301,9 +301,11 @@ def get_partner_menu_keyboard(
                    callback_data="partners_action:change_slug")
     builder.button(text=_(key="partners_referrals_button"),
                    callback_data="partners_action:referrals:0")
+    builder.button(text=_(key="partners_withdraw_button"),
+                   callback_data="partners_action:withdraw")
     builder.button(text=_(key="partners_back_button"),
                    callback_data="main_action:back_to_main")
-    builder.adjust(1, 1, 1)
+    builder.adjust(1, 1, 1, 1)
     return builder.as_markup()
 
 
